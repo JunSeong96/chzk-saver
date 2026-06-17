@@ -1,0 +1,11 @@
+node_modules/
+dist-extension/
+
+*.log
+*.mp4
+*.part
+*.zip
+downloads/
+
+.DS_Store
+Thumbs.db

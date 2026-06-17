@@ -1,0 +1,112 @@
+﻿<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>치직 세이버</title>
+    <link rel="stylesheet" href="/src/styles/downloader.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <img class="brand-mark" src="assets/logo.png" alt="" aria-hidden="true">
+          <div>
+            <strong>치직 세이버</strong>
+            <span>다시보기·클립 MP4 다운로드</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="lookup-panel">
+        <div class="panel-head">
+          <strong>영상 불러오기</strong>
+          <span>치지직 주소를 붙여넣으세요</span>
+        </div>
+        <label class="field">
+          <span>주소</span>
+          <textarea id="vodUrl" rows="1" placeholder="치지직 다시보기 또는 클립 주소를 붙여넣으세요" autocomplete="off"></textarea>
+        </label>
+        <button id="inspectButton" class="primary-button" type="button">불러오기</button>
+        <p id="message" class="message"></p>
+      </section>
+
+      <div class="workspace-layout">
+        <div class="main-pane">
+          <section id="videoSection" class="video-section" hidden>
+            <div class="thumbnail-wrap">
+              <video id="previewPlayer" controls playsinline preload="metadata"></video>
+              <div id="thumbnailBadge" class="thumbnail-badge">영상</div>
+            </div>
+            <div class="video-info">
+              <h2 id="videoTitle"></h2>
+              <label class="field compact player-quality">
+                <span>플레이어 화질</span>
+                <select id="playerQualitySelect"></select>
+              </label>
+              <div id="rangeEditor" class="range-editor">
+                <div class="range-head">
+                  <div>
+                    <span>저장 구간</span>
+                    <strong id="rangeDurationText">전체</strong>
+                  </div>
+                  <button id="resetRangeButton" class="range-reset-button" type="button">전체</button>
+                </div>
+                <div id="rangeTrack" class="range-track">
+                  <div id="rangeHoverPreview" class="range-hover-preview" hidden>
+                    <div id="rangeHoverSprite" class="range-hover-sprite" hidden></div>
+                    <video id="rangeHoverVideo" muted playsinline preload="metadata"></video>
+                    <span id="rangeHoverTime">0:00</span>
+                  </div>
+                  <div id="rangeSelection" class="range-selection"></div>
+                  <button id="rangeStartHandle" class="range-handle start" type="button" aria-label="시작 지점"></button>
+                  <button id="rangeEndHandle" class="range-handle end" type="button" aria-label="끝 지점"></button>
+                </div>
+                <div class="range-times">
+                  <span id="rangeStartText">0:00</span>
+                  <span id="rangeEndText">0:00</span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="queue-section" aria-live="polite">
+          <div class="queue-head">
+            <div>
+              <h3>다운로드 작업</h3>
+            </div>
+          </div>
+          <div id="jobList" class="job-list"></div>
+          <p id="emptyQueue" class="empty-queue">아직 추가된 다운로드 작업이 없습니다.</p>
+          <section class="editor-items-section">
+            <div class="editor-items-head">
+              <h3>편집기에 추가됨</h3>
+            </div>
+            <div id="editorItemList" class="editor-item-list"></div>
+            <p id="emptyEditorList" class="empty-editor-list">팝업에서 영상을 추가하면 여기에 표시됩니다.</p>
+          </section>
+          <div class="download-controls">
+            <label class="field compact">
+              <span>화질</span>
+              <select id="qualitySelect"></select>
+            </label>
+            <button id="downloadButton" class="primary-button" type="button">선택 구간 저장</button>
+          </div>
+        </aside>
+      </div>
+
+      <div class="hidden-meta" hidden>
+        <span id="channelName"></span>
+        <span id="durationText"></span>
+        <span id="contentTypeText"></span>
+        <span id="queueStatus"></span>
+        <div id="formatList"></div>
+      </div>
+    </main>
+
+    <script src="/vendor/hls.min.js"></script>
+    <script src="/vendor/mux-mp4.min.js"></script>
+    <script type="module" src="/src/downloader.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,37 @@
+﻿<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>치직 세이버</title>
+    <link rel="stylesheet" href="/src/styles/popup.css">
+  </head>
+  <body>
+    <main class="popup-shell">
+      <div class="brand-row">
+        <img class="brand-mark" src="assets/logo.png" alt="" aria-hidden="true">
+        <div>
+          <h1>치직 세이버</h1>
+          <p>다시보기·클립 MP4 저장</p>
+        </div>
+      </div>
+
+      <section id="addView">
+        <label class="field">
+          <span>주소</span>
+          <input id="vodUrl" type="url" placeholder="치지직 영상 또는 클립 주소" autocomplete="off">
+        </label>
+
+        <button id="addToEditor" type="button">편집기에 추가</button>
+        <p id="status" class="status">치지직 영상 또는 클립 주소를 불러올 수 있습니다.</p>
+      </section>
+
+      <section id="doneView" class="done-view" hidden>
+        <strong>편집기에 추가됐습니다.</strong>
+        <p>편집기에서 구간을 선택하고 저장할 수 있습니다.</p>
+        <button id="goToEditor" type="button">편집기로 이동</button>
+      </section>
+    </main>
+    <script type="module" src="/src/popup.ts"></script>
+  </body>
+</html>
