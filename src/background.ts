@@ -72,7 +72,7 @@ async function handleMessage(message) {
     await waitForDownload(
       await chrome.downloads.download({
         url: payload.objectUrl,
-        filename: payload.filename,
+        filename: ensureMp4Filename(payload.filename),
         saveAs: false,
         conflictAction: "uniquify",
       }),
@@ -81,6 +81,11 @@ async function handleMessage(message) {
   }
 
   return { ok: true };
+}
+
+function ensureMp4Filename(filename) {
+  const safeName = String(filename || "video.mp4").trim() || "video.mp4";
+  return /\.mp4$/i.test(safeName) ? safeName : `${safeName.replace(/\.[^.\\/]+$/, "")}.mp4`;
 }
 
 async function sendToOffscreen(type, payload) {
