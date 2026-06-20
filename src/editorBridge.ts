@@ -18,6 +18,7 @@ const rangeEditor = query("#rangeEditor");
 let editorTabId = null;
 const sourceTabsByUrl = new Map();
 const sourceTabsById = new Map();
+const pendingEditorUrls = new Set();
 
 init().catch(showRemoteError);
 
@@ -98,27 +99,42 @@ async function addSourceToEditor(source) {
   if (!editorTabId) {
     return;
   }
-  await chrome.runtime.sendMessage({
-    type: "EDITOR_ADD_VIDEO",
-    payload: {
-      url: source.url,
-      tabId: source.tabId,
-      windowId: source.windowId,
-      title: source.title,
-      targetTabId: editorTabId,
-      select: false,
-      clearInput: true,
-    },
-  });
+  const normalizedUrl = normalizeUrl(source.url);
+  const existingCard = findEditorCardByUrl(normalizedUrl);
+  if (!normalizedUrl || pendingEditorUrls.has(normalizedUrl) || existingCard) {
+    return;
+  }
+  pendingEditorUrls.add(normalizedUrl);
+  try {
+    window.dispatchEvent(new CustomEvent("chzzk-saver:add-editor-video", {
+      detail: {
+        url: normalizedUrl,
+        tabId: source.tabId,
+        windowId: source.windowId,
+        title: source.title,
+        thumbnailUrl: source.thumbnailUrl,
+        durationSeconds: source.durationSeconds,
+        select: false,
+        clearInput: true,
+      },
+    }));
+  } finally {
+    pendingEditorUrls.delete(normalizedUrl);
+  }
 }
 
 function bindSourceToExistingCard(source) {
-  for (const card of document.querySelectorAll(".editor-item")) {
-    if (normalizeUrl(card.dataset.url || "") === source.url) {
-      card.dataset.sourceTabId = String(source.tabId);
-      card.dataset.sourceWindowId = String(source.windowId || "");
-    }
+  const card = findEditorCardByUrl(source.url);
+  if (card) {
+    card.dataset.sourceTabId = String(source.tabId);
+    card.dataset.sourceWindowId = String(source.windowId || "");
   }
+}
+
+function findEditorCardByUrl(url) {
+  const normalizedUrl = normalizeUrl(url);
+  return [...document.querySelectorAll(".editor-item")]
+    .find((card) => normalizeUrl(card.dataset.url || "") === normalizedUrl) || null;
 }
 
 function mountSelectedControls() {
@@ -207,6 +223,12 @@ async function markCurrentTime(target) {
 
 function refreshSelectedControls() {
   const selected = getSelectedCard();
+  if (selected) {
+    const slot = selected.querySelector(".editor-item-controls-slot");
+    if (slot && selectedControls.parentElement !== slot) {
+      slot.append(selectedControls);
+    }
+  }
   selectedControls.hidden = !selected;
   remotePanel.hidden = !selected;
   if (!selected) {

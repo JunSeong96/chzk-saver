@@ -20,6 +20,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 notifyReady();
 window.addEventListener("pageshow", notifyReady);
+watchPlayableMetadata();
 
 let lastUrl = location.href;
 window.setInterval(() => {
@@ -104,6 +105,73 @@ function clampTime(time, duration) {
 function notifyReady() {
   chrome.runtime.sendMessage({
     type: "CHZZK_PAGE_READY",
-    payload: { url: location.href },
+    payload: getPageSnapshot(),
   }).catch(() => {});
+}
+
+function getPageSnapshot() {
+  const video = findVideo();
+  return {
+    url: location.href,
+    title: getMetaContent("og:title") || document.title || "",
+    thumbnailUrl: getMetaContent("og:image") || video?.poster || "",
+    durationSeconds: Number.isFinite(video?.duration) ? video.duration : null,
+  };
+}
+
+function getMetaContent(name) {
+  return document.querySelector(`meta[property="${name}"], meta[name="${name}"]`)?.content || "";
+}
+
+function watchPlayableMetadata() {
+  let lastSignature = "";
+  let currentVideo = null;
+
+  const notifyIfChanged = () => {
+    const snapshot = getPageSnapshot();
+    const signature = [
+      snapshot.url,
+      snapshot.title,
+      snapshot.thumbnailUrl,
+      Math.round(Number(snapshot.durationSeconds) || 0),
+    ].join("|");
+    if (signature !== lastSignature) {
+      lastSignature = signature;
+      notifyReady();
+    }
+  };
+
+  const bindVideo = () => {
+    const video = findVideo();
+    if (!video || video === currentVideo) {
+      return;
+    }
+    currentVideo = video;
+    for (const eventName of ["loadedmetadata", "durationchange", "loadeddata"]) {
+      video.addEventListener(eventName, notifyIfChanged, { passive: true });
+    }
+    notifyIfChanged();
+  };
+
+  bindVideo();
+  const observer = new MutationObserver(() => {
+    bindVideo();
+    notifyIfChanged();
+  });
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["content", "poster"],
+  });
+
+  let ticks = 0;
+  const timer = window.setInterval(() => {
+    bindVideo();
+    notifyIfChanged();
+    ticks += 1;
+    if (ticks >= 20) {
+      window.clearInterval(timer);
+    }
+  }, 500);
 }

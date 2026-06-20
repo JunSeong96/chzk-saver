@@ -42,33 +42,6 @@ body {
   padding: 18px 0 36px;
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 54px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.brand-lockup {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.brand-lockup strong,
-.brand-lockup span {
-  display: block;
-}
-
-.brand-lockup strong {
-  font-size: 16px;
-  line-height: 1.15;
-}
-
-.brand-lockup span,
 .message,
 .field span,
 .file-copy span {
@@ -76,18 +49,11 @@ body {
   font-size: 13px;
 }
 
-.brand-mark,
 .file-icon {
   display: grid;
   place-items: center;
   border-radius: 8px;
   font-weight: 900;
-}
-
-.brand-mark {
-  width: 48px;
-  height: 48px;
-  display: block;
 }
 
 .state-pill {
@@ -144,11 +110,91 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  margin-top: 14px;
+  margin-top: 0;
   padding: 12px 14px;
   border-color: rgba(0, 255, 163, 0.18);
   background: rgba(11, 16, 18, 0.82);
   box-shadow: var(--shadow-soft);
+}
+
+.options-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.options-menu summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(0, 255, 163, 0.28);
+  border-radius: 8px;
+  background: rgba(0, 255, 163, 0.07);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  list-style: none;
+}
+
+.options-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.options-menu summary::after {
+  margin-left: 8px;
+  color: var(--muted);
+  content: "▾";
+  font-size: 10px;
+}
+
+.options-menu[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.options-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 10;
+  width: min(310px, calc(100vw - 40px));
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(13, 18, 20, 0.98);
+  box-shadow: var(--shadow);
+}
+
+.options-menu fieldset {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.options-menu legend {
+  margin-bottom: 2px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.options-menu label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.options-menu input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
 }
 
 .auto-source-panel strong,
@@ -682,6 +728,12 @@ h2 {
   padding-right: 2px;
 }
 
+.job-list[hidden],
+.empty-queue[hidden],
+.download-controls[hidden] {
+  display: none !important;
+}
+
 .download-job {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -816,6 +868,11 @@ h2 {
   border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
+.editor-items-section.unified-items-section {
+  flex: 1 1 auto;
+  margin-top: 14px;
+}
+
 .editor-items-head h3 {
   font-size: 15px;
   line-height: 1.25;
@@ -823,8 +880,8 @@ h2 {
 
 .editor-item-list {
   display: grid;
-  gap: 8px;
-  max-height: 280px;
+  gap: 10px;
+  max-height: none;
   overflow: auto;
   margin-top: 10px;
   padding-right: 2px;
@@ -847,11 +904,11 @@ h2 {
 
 .editor-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
   min-height: 0;
-  padding: 8px;
+  padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(9, 13, 15, 0.46);
@@ -861,6 +918,12 @@ h2 {
 .editor-item.selected {
   border-color: rgba(0, 255, 163, 0.46);
   background: rgba(0, 255, 163, 0.07);
+}
+
+.editor-item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
 }
 
 .editor-item-main {
@@ -876,6 +939,29 @@ h2 {
   background: transparent;
   color: var(--text);
   text-align: left;
+}
+
+.editor-item-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.editor-item-actions button {
+  min-height: 34px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.editor-item-quality {
+  border-color: rgba(98, 217, 255, 0.28);
+  color: var(--cyan);
+}
+
+.editor-item-download {
+  border-color: transparent;
+  background: var(--green);
+  color: #03100c;
 }
 
 .editor-item-main:hover:not(:disabled) {
@@ -922,12 +1008,55 @@ h2 {
 
 .editor-item-delete {
   width: auto;
-  min-height: 30px;
   margin: 0;
-  padding: 0 9px;
   border-color: rgba(255, 91, 103, 0.24);
   color: var(--red);
+}
+
+.editor-item-progress {
+  display: grid;
+  gap: 7px;
+  padding-top: 2px;
+}
+
+.editor-item-progress[hidden] {
+  display: none !important;
+}
+
+.editor-progress-head,
+.editor-progress-metrics {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--soft);
   font-size: 11px;
+  font-weight: 800;
+}
+
+.editor-progress-percent {
+  color: var(--green);
+  font-weight: 900;
+}
+
+.editor-progress-metrics span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-progress-speed {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.editor-progress-eta {
+  color: rgba(190, 218, 220, 0.82);
+}
+
+.editor-item-controls-slot:empty {
+  display: none;
 }
 
 .empty-editor-list {
@@ -1115,7 +1244,6 @@ h2 {
     width: min(100% - 20px, 700px);
   }
 
-  .topbar,
   .download-card-head {
     align-items: flex-start;
     flex-direction: column;

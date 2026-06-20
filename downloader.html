@@ -8,21 +8,38 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="topbar">
-        <div class="brand-lockup">
-          <img class="brand-mark" src="assets/logo.png" alt="" aria-hidden="true">
-          <div>
-            <strong>치직 세이버</strong>
-            <span>다시보기·클립 MP4 다운로드</span>
-          </div>
-        </div>
-      </header>
-
       <section class="auto-source-panel">
         <div>
           <strong>열린 치지직 탭 자동 감지</strong>
           <span>다시보기나 클립 페이지를 열면 편집기에 자동으로 추가됩니다.</span>
         </div>
+        <details class="options-menu">
+          <summary>옵션</summary>
+          <div class="options-menu-panel">
+            <fieldset>
+              <legend>다시보기</legend>
+              <label>
+                <input id="videoAutoDownload" type="checkbox">
+                <span>항목 추가 시 자동 다운로드</span>
+              </label>
+              <label>
+                <input id="videoRemoveOnComplete" type="checkbox">
+                <span>다운로드 완료 시 목록에서 삭제</span>
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend>클립</legend>
+              <label>
+                <input id="clipAutoDownload" type="checkbox">
+                <span>항목 추가 시 자동 다운로드</span>
+              </label>
+              <label>
+                <input id="clipRemoveOnComplete" type="checkbox">
+                <span>다운로드 완료 시 목록에서 삭제</span>
+              </label>
+            </fieldset>
+          </div>
+        </details>
         <p id="message" class="message"></p>
         <div class="hidden-manual-input" hidden>
           <textarea id="vodUrl" rows="1" autocomplete="off"></textarea>
@@ -90,12 +107,12 @@
         <aside class="queue-section" aria-live="polite">
           <div class="queue-head">
             <div>
-              <h3>다운로드 작업</h3>
+              <h3>항목</h3>
             </div>
           </div>
-          <div id="jobList" class="job-list"></div>
-          <p id="emptyQueue" class="empty-queue">아직 추가된 다운로드 작업이 없습니다.</p>
-          <section class="editor-items-section">
+          <div id="jobList" class="job-list" hidden></div>
+          <p id="emptyQueue" class="empty-queue" hidden>아직 추가된 다운로드 작업이 없습니다.</p>
+          <section class="editor-items-section unified-items-section">
             <div class="editor-items-head">
               <h3>편집기에 추가됨</h3>
             </div>
@@ -103,7 +120,7 @@
             <p id="emptyEditorList" class="empty-editor-list">치지직 다시보기나 클립 탭을 열면 여기에 표시됩니다.</p>
             <section id="selectedEditorControls" class="selected-editor-controls" hidden></section>
           </section>
-          <div class="download-controls">
+          <div class="download-controls" hidden>
             <label class="field compact">
               <span>화질</span>
               <select id="qualitySelect"></select>
@@ -124,6 +141,7 @@
 
     <script src="/vendor/hls.min.js"></script>
     <script src="/vendor/mux-mp4.min.js"></script>
+    <script type="module" src="/src/itemOptions.ts"></script>
     <script type="module" src="/src/downloader.ts"></script>
     <script type="module" src="/src/editorBridge.ts"></script>
   </body>

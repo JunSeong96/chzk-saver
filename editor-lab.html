@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>치직 세이버 편집기 랩</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #07100f; color: #f4fffb; }
+      body { margin: 0; }
+      main { width: min(760px, calc(100vw - 24px)); margin: 0 auto; padding: 18px 0; display: grid; gap: 12px; }
+      section { border: 1px solid #1f3937; background: #0b1414; border-radius: 8px; padding: 14px; }
+      h1, h2 { margin: 0 0 8px; }
+      p { color: #b8ccca; margin: 0 0 10px; line-height: 1.45; }
+      textarea { width: 100%; min-height: 92px; box-sizing: border-box; resize: vertical; border: 1px solid #294441; border-radius: 8px; background: #172121; color: #fff; padding: 12px; font: inherit; }
+      button { border: 1px solid #2b4946; border-radius: 8px; background: #172323; color: #eafffb; padding: 10px 14px; font-weight: 800; cursor: pointer; }
+      button.primary { border-color: #00f59c; background: #00f59c; color: #00110c; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .metric { border: 1px solid #1d3432; border-radius: 8px; background: #081111; padding: 10px; color: #b8ccca; }
+      .metric strong { display: block; margin-top: 3px; color: #2dffd1; font-size: 21px; }
+      .list { display: grid; gap: 10px; }
+      .card { border: 1px solid #263d3b; border-radius: 8px; padding: 10px; background: #081111; display: grid; gap: 8px; }
+      .card-main { display: grid; grid-template-columns: 108px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+      img { width: 108px; height: 61px; border-radius: 6px; object-fit: cover; background: #020605; }
+      .title { font-weight: 900; overflow-wrap: anywhere; }
+      .meta { display: flex; gap: 8px; flex-wrap: wrap; color: #b8ccca; font-size: 13px; font-weight: 800; }
+      .kind { color: #10ffc0; }
+      .state { border: 1px solid #087e64; border-radius: 999px; color: #19ffbf; padding: 4px 9px; font-size: 12px; white-space: nowrap; }
+      .error { color: #ff6d7a; }
+      pre { max-height: 260px; overflow: auto; white-space: pre-wrap; color: #bfd2cf; margin: 0; border-top: 1px solid #1d3432; padding-top: 10px; }
+      @media (max-width: 620px) {
+        .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .card-main { grid-template-columns: 82px minmax(0, 1fr); }
+        .card-main .state { grid-column: 1 / -1; width: max-content; }
+        img { width: 82px; height: 46px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h1>치직 세이버 편집기 랩</h1>
+        <p>확장 메시지 없이 같은 자동 감지 로직을 TypeScript 웹에서 테스트합니다. 같은 링크가 여러 번 들어와도 1개만 남고, API 첫 응답으로 썸네일/길이가 바로 떠야 합니다.</p>
+        <textarea id="urlInput">https://chzzk.naver.com/video/13659163
+https://chzzk.naver.com/video/13741031</textarea>
+        <div class="row" style="margin-top:10px">
+          <button id="detectOnce" class="primary">열린 탭 감지 1회</button>
+          <button id="detectDuplicate">중복 감지 3회</button>
+          <button id="clear">초기화</button>
+        </div>
+      </section>
+      <section class="metrics">
+        <div class="metric">입력 이벤트<strong id="eventCount">0</strong></div>
+        <div class="metric">카드 수<strong id="itemCount">0</strong></div>
+        <div class="metric">로드 완료<strong id="loadedCount">0</strong></div>
+        <div class="metric">중복 제거<strong id="dedupeCount">0</strong></div>
+      </section>
+      <section>
+        <h2>편집기에 추가됨</h2>
+        <div id="items" class="list"></div>
+      </section>
+      <section>
+        <h2>이벤트 로그</h2>
+        <pre id="log"></pre>
+      </section>
+    </main>
+    <script type="module" src="/editor-lab.js"></script>
+  </body>
+</html>

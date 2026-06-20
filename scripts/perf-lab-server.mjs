@@ -2,11 +2,15 @@
 import { createServer } from "node:http";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const publicDir = join(root, "public");
-const port = Number(process.env.PORT || 3010);
+const port = Number(process.env.PORT || 3000);
 const API_BASE = "https://api.chzzk.naver.com/service/v3";
+const API_V1_BASE = "https://api.chzzk.naver.com/service/v1";
+const VIDEO_URL_RE = /^https:\/\/chzzk\.naver\.com\/video\/(?<id>\d+)(?:[/?#].*)?$/;
+const CLIP_URL_RE = /^https:\/\/chzzk\.naver\.com\/clips\/(?<id>[A-Za-z0-9_-]+)(?:[/?#].*)?$/;
 
 const server = createServer(async (request, response) => {
   try {
@@ -15,8 +19,20 @@ const server = createServer(async (request, response) => {
       send(response, 200, "text/html; charset=utf-8", html);
       return;
     }
+    if (url.pathname === "/editor-lab") {
+      send(response, 200, "text/html; charset=utf-8", editorLabHtml);
+      return;
+    }
     if (url.pathname === "/perf-lab.js") {
       send(response, 200, "text/javascript; charset=utf-8", clientJs);
+      return;
+    }
+    if (url.pathname === "/editor-lab.js") {
+      send(response, 200, "text/javascript; charset=utf-8", editorLabJs);
+      return;
+    }
+    if (url.pathname === "/api/media") {
+      await handleMedia(url, response);
       return;
     }
     if (url.pathname === "/api/chzzk") {
@@ -81,6 +97,76 @@ async function handleChzzk(url, response) {
   });
 }
 
+async function handleMedia(url, response) {
+  const sourceUrl = normalizeChzzkUrl(url.searchParams.get("url") || "");
+  const parsed = parseChzzkUrl(sourceUrl);
+  if (!parsed) {
+    sendJson(response, 400, { message: "치지직 다시보기 또는 클립 주소가 아닙니다." });
+    return;
+  }
+
+  try {
+    const startedAt = Date.now();
+    const payload = parsed.type === "video"
+      ? await loadVideoPreview(parsed.id)
+      : await loadClipPreview(parsed.id);
+    sendJson(response, 200, {
+      ...payload,
+      url: sourceUrl,
+      loadMs: Date.now() - startedAt,
+    });
+  } catch (error) {
+    sendJson(response, 502, { message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function loadVideoPreview(videoNo) {
+  const content = await fetchChzzkJson(`${API_BASE}/videos/${videoNo}`, "영상 정보를 불러오지 못했습니다.");
+  return {
+    id: String(content.videoNo),
+    type: "video",
+    contentKind: "영상",
+    title: content.videoTitle || `chzzk_${content.videoNo}`,
+    channelName: content.channel?.channelName || "",
+    durationSeconds: content.duration || null,
+    thumbnailUrl: content.thumbnailImageUrl || "",
+  };
+}
+
+async function loadClipPreview(clipId) {
+  const [playInfo, detail] = await Promise.all([
+    fetchChzzkJson(`${API_V1_BASE}/play-info/clip/${clipId}`, "클립을 불러오지 못했습니다."),
+    fetchChzzkJson(`${API_V1_BASE}/clips/${clipId}/detail`, "클립 상세 정보를 불러오지 못했습니다.").catch(() => null),
+  ]);
+  return {
+    id: String(playInfo.contentId || clipId),
+    type: "clip",
+    contentKind: "클립",
+    title: playInfo.contentTitle || detail?.clipTitle || `chzzk_clip_${clipId}`,
+    channelName: playInfo.ownerChannel?.channelName || playInfo.makerChannel?.channelName || "",
+    durationSeconds: playInfo.duration || detail?.duration || null,
+    thumbnailUrl: playInfo.thumbnailImageUrl || detail?.thumbnailImageUrl || "",
+  };
+}
+
+async function fetchChzzkJson(apiUrl, fallbackMessage) {
+  const apiResponse = await fetch(apiUrl, {
+    cache: "no-store",
+    headers: {
+      accept: "application/json",
+      "user-agent": "Mozilla/5.0",
+    },
+  });
+  if (!apiResponse.ok) {
+    throw Error(`${fallbackMessage} HTTP ${apiResponse.status}`);
+  }
+  const body = await apiResponse.json();
+  if (body.code !== 200 || !body.content) {
+    throw Error(body.message || fallbackMessage);
+  }
+  return body.content;
+}
+
 async function handleProxy(url, response) {
   const target = url.searchParams.get("url");
   if (!target || !/^https:\/\/.+/i.test(target)) {
@@ -140,6 +226,23 @@ function parsePlayback(value) {
   } catch {
     return null;
   }
+}
+
+function normalizeChzzkUrl(value) {
+  const parsed = parseChzzkUrl(value);
+  if (!parsed) return String(value || "").trim();
+  return parsed.type === "video"
+    ? `https://chzzk.naver.com/video/${parsed.id}`
+    : `https://chzzk.naver.com/clips/${parsed.id}`;
+}
+
+function parseChzzkUrl(value) {
+  const text = String(value || "").trim();
+  const video = text.match(VIDEO_URL_RE);
+  if (video?.groups?.id) return { type: "video", id: video.groups.id };
+  const clip = text.match(CLIP_URL_RE);
+  if (clip?.groups?.id) return { type: "clip", id: clip.groups.id };
+  return null;
 }
 
 function normalizeSprite(sprite, liveOpenDate) {
@@ -270,4 +373,15 @@ const html = String.raw`<!doctype html>
 </html>`;
 
 const clientJs = readFileSync(new URL("./perf-lab-client.js", import.meta.url), "utf8");
+const editorLabHtml = readFileSync(new URL("../editor-lab.html", import.meta.url), "utf8");
+const editorLabJs = ts.transpileModule(
+  readFileSync(new URL("../src/editorLab.ts", import.meta.url), "utf8"),
+  {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ES2022,
+      strict: false,
+    },
+  },
+).outputText;
 

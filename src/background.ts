@@ -77,6 +77,9 @@ async function handleMessage(message, sender) {
 
   if (message.type === "EDITOR_ADD_VIDEO") {
     const targetTabId = message.payload?.targetTabId;
+    if (targetTabId && sender?.tab?.id === targetTabId) {
+      return { ok: true };
+    }
     if (targetTabId) {
       await chrome.tabs.sendMessage(targetTabId, message);
       return { ok: true };
@@ -88,7 +91,13 @@ async function handleMessage(message, sender) {
   if (message.type === "CHZZK_PAGE_READY") {
     const tab = sender?.tab;
     if (tab?.id && isChzzkPlayableUrl(tab.url)) {
-      await notifyEditorAboutChzzkTab(tab);
+      await notifyEditorAboutChzzkTab({
+        ...tab,
+        url: message.payload?.url || tab.url,
+        title: message.payload?.title || tab.title,
+        thumbnailUrl: message.payload?.thumbnailUrl || "",
+        durationSeconds: message.payload?.durationSeconds ?? null,
+      });
     }
     return { ok: true };
   }
@@ -303,8 +312,8 @@ async function openOrFocusEditorWindow({ addUrl = "" } = {}) {
   const win = await chrome.windows.create({
     url,
     type: "popup",
-    width: 980,
-    height: 820,
+    width: 520,
+    height: 574,
     focused: true,
   });
   editorWindowId = win.id ?? null;
@@ -341,6 +350,8 @@ function serializeTab(tab) {
     windowId: tab.windowId,
     url: tab.url,
     title: tab.title || "",
+    thumbnailUrl: tab.thumbnailUrl || "",
+    durationSeconds: tab.durationSeconds ?? null,
   };
 }
 

@@ -6,6 +6,7 @@
     "build:extension": "vite build --config vite.extension.config.ts",
     "typecheck:extension": "tsc -p tsconfig.extension.json --noEmit",
     "validate:extension": "node scripts/validate-extension-build.mjs",
+    "editor-lab": "node scripts/perf-lab-server.mjs",
     "perf-lab": "node scripts/perf-lab-server.mjs",
     "smoke:extension:whale": "node scripts/smoke-extension-whale.mjs",
     "verify:extension": "npm run typecheck:extension && npm run build:extension && npm run validate:extension"
