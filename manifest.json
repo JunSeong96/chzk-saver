@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "치직 세이버",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "치지직 다시보기와 클립을 MP4 파일로 저장할 수 있는 확장 프로그램입니다.",
   "icons": {
     "16": "assets/icon16.png",

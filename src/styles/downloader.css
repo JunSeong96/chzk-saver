@@ -37,7 +37,7 @@ body {
 }
 
 .app-shell {
-  width: min(1520px, calc(100% - 40px));
+  width: min(1080px, calc(100% - 28px));
   margin: 0 auto;
   padding: 18px 0 36px;
 }
@@ -104,6 +104,7 @@ p {
 }
 
 .lookup-panel,
+.auto-source-panel,
 .video-section,
 .download-card,
 .queue-section {
@@ -115,13 +116,14 @@ p {
 
 .workspace-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
   align-items: start;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .main-pane {
+  display: none;
   min-width: 0;
 }
 
@@ -135,6 +137,38 @@ p {
   border-color: rgba(0, 255, 163, 0.18);
   background: rgba(11, 16, 18, 0.82);
   box-shadow: var(--shadow-soft);
+}
+
+.auto-source-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-color: rgba(0, 255, 163, 0.18);
+  background: rgba(11, 16, 18, 0.82);
+  box-shadow: var(--shadow-soft);
+}
+
+.auto-source-panel strong,
+.auto-source-panel span {
+  display: block;
+}
+
+.auto-source-panel strong {
+  font-size: 15px;
+}
+
+.auto-source-panel span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.auto-source-panel .message {
+  flex: 0 0 auto;
+  text-align: right;
 }
 
 .panel-head {
@@ -355,6 +389,7 @@ h2 {
 }
 
 .remote-panel {
+  margin-top: 0;
   border: 1px solid rgba(0, 255, 170, 0.35);
   border-radius: 8px;
   background: rgba(0, 255, 170, 0.06);
@@ -608,12 +643,11 @@ h2 {
 }
 
 .queue-section {
-  position: sticky;
-  top: 18px;
+  position: static;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 96px);
-  min-height: 420px;
+  max-height: none;
+  min-height: 560px;
   margin-top: 0;
   padding: 16px;
   background: linear-gradient(180deg, rgba(20, 26, 29, 0.98), rgba(13, 18, 20, 0.98));
@@ -790,10 +824,25 @@ h2 {
 .editor-item-list {
   display: grid;
   gap: 8px;
-  max-height: 220px;
+  max-height: 280px;
   overflow: auto;
   margin-top: 10px;
   padding-right: 2px;
+}
+
+.selected-editor-controls {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(0, 255, 163, 0.24);
+  border-radius: 8px;
+  background: rgba(0, 255, 163, 0.045);
+}
+
+.selected-editor-controls .range-editor {
+  border-color: rgba(166, 240, 255, 0.16);
+  background: rgba(7, 11, 13, 0.62);
 }
 
 .editor-item {

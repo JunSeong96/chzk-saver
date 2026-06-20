@@ -70,6 +70,11 @@ async function handleMessage(message, sender) {
     return { ok: true };
   }
 
+  if (message.type === "EDITOR_OPEN_SOURCE_TAB") {
+    const tab = await openSourceTab(message.payload?.url);
+    return { ok: true, tab: serializeTab(tab) };
+  }
+
   if (message.type === "EDITOR_ADD_VIDEO") {
     const targetTabId = message.payload?.targetTabId;
     if (targetTabId) {
@@ -298,8 +303,8 @@ async function openOrFocusEditorWindow({ addUrl = "" } = {}) {
   const win = await chrome.windows.create({
     url,
     type: "popup",
-    width: 1320,
-    height: 860,
+    width: 980,
+    height: 820,
     focused: true,
   });
   editorWindowId = win.id ?? null;
@@ -348,6 +353,23 @@ async function focusTab(tabId) {
   if (tab?.windowId) {
     await chrome.windows.update(tab.windowId, { focused: true });
   }
+}
+
+async function openSourceTab(url) {
+  if (!isChzzkPlayableUrl(url)) {
+    throw Error("열 수 있는 치지직 주소가 없습니다.");
+  }
+  const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+  const targetWindow = windows.find((win) => win.focused) || windows[0] || null;
+  const tab = await chrome.tabs.create({
+    url,
+    active: true,
+    ...(targetWindow?.id ? { windowId: targetWindow.id } : {}),
+  });
+  if (tab.windowId) {
+    await chrome.windows.update(tab.windowId, { focused: true });
+  }
+  return tab;
 }
 
 function isChzzkPlayableUrl(url) {

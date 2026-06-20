@@ -12,14 +12,14 @@ const remoteSyncButton = query("#remoteSyncButton");
 const remoteMarkStartButton = query("#remoteMarkStartButton");
 const remoteMarkEndButton = query("#remoteMarkEndButton");
 const remoteTimeText = query("#remoteTimeText");
+const selectedControls = query("#selectedEditorControls");
+const rangeEditor = query("#rangeEditor");
 
 let editorTabId = null;
 const sourceTabsByUrl = new Map();
 const sourceTabsById = new Map();
 
-init().catch((error) => {
-  remoteStatus.textContent = error instanceof Error ? error.message : String(error);
-});
+init().catch(showRemoteError);
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "CHZZK_TAB_DISCOVERED") {
@@ -35,11 +35,11 @@ chrome.runtime.onMessage.addListener((message) => {
 
 document.addEventListener("click", (event) => {
   if (event.target?.closest?.(".editor-item-main")) {
-    window.setTimeout(refreshRemotePanel, 0);
+    window.setTimeout(refreshSelectedControls, 0);
   }
 });
 
-remoteFocusButton.addEventListener("click", () => focusSelectedSourceTab().catch(showRemoteError));
+remoteFocusButton.addEventListener("click", () => focusOrOpenSelectedSourceTab().catch(showRemoteError));
 remotePlayButton.addEventListener("click", () => sendPlayerCommand("play").catch(showRemoteError));
 remotePauseButton.addEventListener("click", () => sendPlayerCommand("pause").catch(showRemoteError));
 remoteSyncButton.addEventListener("click", () => syncCurrentTime().catch(showRemoteError));
@@ -49,9 +49,10 @@ remoteMarkEndButton.addEventListener("click", () => markCurrentTime("end").catch
 async function init() {
   const tab = await chrome.tabs.getCurrent();
   editorTabId = tab?.id ?? null;
+  mountSelectedControls();
   await collectOpenChzzkTabs();
   window.setInterval(() => collectOpenChzzkTabs().catch(() => {}), 5000);
-  window.setInterval(() => refreshRemotePanel(), 1000);
+  window.setInterval(() => refreshSelectedControls(), 1000);
 }
 
 async function collectOpenChzzkTabs() {
@@ -62,7 +63,7 @@ async function collectOpenChzzkTabs() {
   for (const tab of response?.tabs || []) {
     registerSourceTab(tab, { addToEditor: true });
   }
-  refreshRemotePanel();
+  refreshSelectedControls();
 }
 
 function registerSourceTab(tab, { addToEditor = false } = {}) {
@@ -77,7 +78,7 @@ function registerSourceTab(tab, { addToEditor = false } = {}) {
   if (addToEditor) {
     addSourceToEditor(source).catch(() => {});
   }
-  refreshRemotePanel();
+  refreshSelectedControls();
 }
 
 function removeSourceTab(tabId) {
@@ -90,7 +91,7 @@ function removeSourceTab(tabId) {
   for (const card of document.querySelectorAll(`.editor-item[data-source-tab-id="${key}"]`)) {
     card.dataset.sourceTabId = "";
   }
-  refreshRemotePanel();
+  refreshSelectedControls();
 }
 
 async function addSourceToEditor(source) {
@@ -120,21 +121,58 @@ function bindSourceToExistingCard(source) {
   }
 }
 
-async function focusSelectedSourceTab() {
-  const source = getSelectedSource();
+function mountSelectedControls() {
+  selectedControls.append(remotePanel, rangeEditor);
+  remotePanel.hidden = true;
+  selectedControls.hidden = true;
+}
+
+async function focusOrOpenSelectedSourceTab() {
+  let source = getSelectedSource();
   if (!source?.tabId) {
-    throw Error("연결된 치지직 탭이 없습니다.");
+    source = await openSelectedUrlInBrowserTab();
+  } else {
+    await chrome.runtime.sendMessage({
+      type: "EDITOR_FOCUS_TAB",
+      payload: { tabId: source.tabId },
+    });
   }
-  await chrome.runtime.sendMessage({
-    type: "EDITOR_FOCUS_TAB",
-    payload: { tabId: source.tabId },
+  if (source) {
+    registerSourceTab(source, { addToEditor: false });
+    updateSelectedCardSource(source);
+    await addSourceToEditor(source);
+  }
+}
+
+async function openSelectedUrlInBrowserTab() {
+  const card = getSelectedCard();
+  const url = normalizeUrl(card?.dataset.url || "");
+  if (!url) {
+    throw Error("열 수 있는 치지직 주소가 없습니다.");
+  }
+  const response = await chrome.runtime.sendMessage({
+    type: "EDITOR_OPEN_SOURCE_TAB",
+    payload: { url },
   });
+  if (response?.ok === false) {
+    throw Error(response.message || "원본 탭을 열지 못했습니다.");
+  }
+  return response.tab || null;
+}
+
+function updateSelectedCardSource(source) {
+  const card = getSelectedCard();
+  if (!card || !source?.tabId) {
+    return;
+  }
+  card.dataset.sourceTabId = String(source.tabId);
+  card.dataset.sourceWindowId = String(source.windowId || "");
 }
 
 async function sendPlayerCommand(command, payload = {}) {
   const source = getSelectedSource();
   if (!source?.tabId) {
-    throw Error("연결된 치지직 탭이 없습니다.");
+    throw Error("연결된 원본 탭이 없습니다.");
   }
   const response = await chrome.runtime.sendMessage({
     type: "CHZZK_PLAYER_COMMAND",
@@ -167,8 +205,9 @@ async function markCurrentTime(target) {
   ));
 }
 
-function refreshRemotePanel() {
+function refreshSelectedControls() {
   const selected = getSelectedCard();
+  selectedControls.hidden = !selected;
   remotePanel.hidden = !selected;
   if (!selected) {
     return;
@@ -176,11 +215,13 @@ function refreshRemotePanel() {
   const source = getSelectedSource();
   if (!source?.tabId) {
     remoteStatus.textContent = "원본 탭 연결 없음";
-    setRemoteDisabled(true);
+    remoteFocusButton.textContent = "원본 탭 보기";
+    setPlayerButtonsDisabled(true);
     return;
   }
   remoteStatus.textContent = "원본 탭 연결됨";
-  setRemoteDisabled(false);
+  remoteFocusButton.textContent = "원본 탭 보기";
+  setPlayerButtonsDisabled(false);
 }
 
 function updateRemoteState(state) {
@@ -208,9 +249,8 @@ function getSelectedCard() {
   return document.querySelector(".editor-item.selected");
 }
 
-function setRemoteDisabled(disabled) {
+function setPlayerButtonsDisabled(disabled) {
   for (const button of [
-    remoteFocusButton,
     remotePlayButton,
     remotePauseButton,
     remoteSyncButton,

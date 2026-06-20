@@ -18,17 +18,16 @@
         </div>
       </header>
 
-      <section class="lookup-panel">
-        <div class="panel-head">
-          <strong>영상 불러오기</strong>
-          <span>치지직 주소를 붙여넣으세요</span>
+      <section class="auto-source-panel">
+        <div>
+          <strong>열린 치지직 탭 자동 감지</strong>
+          <span>다시보기나 클립 페이지를 열면 편집기에 자동으로 추가됩니다.</span>
         </div>
-        <label class="field">
-          <span>주소</span>
-          <textarea id="vodUrl" rows="1" placeholder="치지직 다시보기 또는 클립 주소를 붙여넣으세요" autocomplete="off"></textarea>
-        </label>
-        <button id="inspectButton" class="primary-button" type="button">불러오기</button>
         <p id="message" class="message"></p>
+        <div class="hidden-manual-input" hidden>
+          <textarea id="vodUrl" rows="1" autocomplete="off"></textarea>
+          <button id="inspectButton" type="button">불러오기</button>
+        </div>
       </section>
 
       <div class="workspace-layout">
@@ -52,8 +51,8 @@
                   <button id="remotePlayButton" type="button">재생</button>
                   <button id="remotePauseButton" type="button">정지</button>
                   <button id="remoteSyncButton" type="button">시간 동기화</button>
-                  <button id="remoteMarkStartButton" type="button">현재 시간을 시작으로</button>
-                  <button id="remoteMarkEndButton" type="button">현재 시간을 끝으로</button>
+                  <button id="remoteMarkStartButton" type="button">구간 시작 설정</button>
+                  <button id="remoteMarkEndButton" type="button">구간 종료 설정</button>
                 </div>
                 <p id="remoteTimeText" class="remote-time">0:00</p>
               </section>
@@ -101,7 +100,8 @@
               <h3>편집기에 추가됨</h3>
             </div>
             <div id="editorItemList" class="editor-item-list"></div>
-            <p id="emptyEditorList" class="empty-editor-list">팝업에서 영상을 추가하면 여기에 표시됩니다.</p>
+            <p id="emptyEditorList" class="empty-editor-list">치지직 다시보기나 클립 탭을 열면 여기에 표시됩니다.</p>
+            <section id="selectedEditorControls" class="selected-editor-controls" hidden></section>
           </section>
           <div class="download-controls">
             <label class="field compact">
