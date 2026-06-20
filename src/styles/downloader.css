@@ -349,6 +349,71 @@ h2 {
   font-weight: 800;
 }
 
+.video-section.remote-mode .thumbnail-wrap,
+.video-section.remote-mode .player-quality {
+  display: none;
+}
+
+.remote-panel {
+  border: 1px solid rgba(0, 255, 170, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 255, 170, 0.06);
+  padding: 16px;
+}
+
+.remote-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.remote-panel-head span {
+  display: block;
+  color: #a8c7c7;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.remote-panel-head strong {
+  color: var(--white);
+  font-size: 18px;
+}
+
+.remote-actions {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.remote-panel button {
+  min-height: 42px;
+  border: 1px solid rgba(166, 240, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(18, 30, 34, 0.88);
+  color: var(--white);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.remote-panel button:hover:not(:disabled),
+.remote-panel button:focus-visible {
+  border-color: rgba(0, 255, 170, 0.72);
+  color: var(--green);
+}
+
+.remote-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.remote-time {
+  margin: 10px 0 0;
+  color: #b7d7d7;
+  font-weight: 800;
+}
+
 .download-controls {
   flex: 0 0 auto;
   display: grid;
@@ -991,6 +1056,9 @@ h2 {
     margin-top: 0;
   }
 
+  .remote-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
@@ -1017,6 +1085,15 @@ h2 {
 
   .video-section {
     padding: 0;
+  }
+
+  .remote-panel-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .remote-actions {
+    grid-template-columns: 1fr;
   }
 
   .progress-percent {

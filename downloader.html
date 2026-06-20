@@ -40,6 +40,23 @@
             </div>
             <div class="video-info">
               <h2 id="videoTitle"></h2>
+              <section id="remotePanel" class="remote-panel" hidden>
+                <div class="remote-panel-head">
+                  <div>
+                    <span>원본 플레이어</span>
+                    <strong id="remoteStatus">연결 확인 중</strong>
+                  </div>
+                  <button id="remoteFocusButton" type="button">원본 탭 보기</button>
+                </div>
+                <div class="remote-actions">
+                  <button id="remotePlayButton" type="button">재생</button>
+                  <button id="remotePauseButton" type="button">정지</button>
+                  <button id="remoteSyncButton" type="button">시간 동기화</button>
+                  <button id="remoteMarkStartButton" type="button">현재 시간을 시작으로</button>
+                  <button id="remoteMarkEndButton" type="button">현재 시간을 끝으로</button>
+                </div>
+                <p id="remoteTimeText" class="remote-time">0:00</p>
+              </section>
               <label class="field compact player-quality">
                 <span>플레이어 화질</span>
                 <select id="playerQualitySelect"></select>
@@ -108,5 +125,6 @@
     <script src="/vendor/hls.min.js"></script>
     <script src="/vendor/mux-mp4.min.js"></script>
     <script type="module" src="/src/downloader.ts"></script>
+    <script type="module" src="/src/editorBridge.ts"></script>
   </body>
 </html>

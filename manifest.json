@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "치직 세이버",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "치지직 다시보기와 클립을 MP4 파일로 저장할 수 있는 확장 프로그램입니다.",
   "icons": {
     "16": "assets/icon16.png",
@@ -23,7 +23,17 @@
     "service_worker": "src/background.ts",
     "type": "module"
   },
-  "permissions": ["storage", "tabs", "downloads", "offscreen", "declarativeNetRequest"],
+  "permissions": ["storage", "tabs", "downloads", "offscreen", "declarativeNetRequest", "scripting"],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chzzk.naver.com/video/*",
+        "https://chzzk.naver.com/clips/*"
+      ],
+      "js": ["src/content/chzzkPlayerBridge.ts"],
+      "run_at": "document_idle"
+    }
+  ],
   "declarative_net_request": {
     "rule_resources": [
       {

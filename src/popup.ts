@@ -1,4 +1,91 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 export {};
-var e=p(`#vodUrl`),t=p(`#addToEditor`),n=p(`#goToEditor`),r=p(`#status`),i=p(`#addView`),a=p(`#doneView`),o=/^https:\/\/chzzk\.naver\.com\/(?:video\/\d+|clips\/[A-Za-z0-9_-]+)/,s=null;c();async function c(){let[t]=await chrome.tabs.query({active:!0,currentWindow:!0});if(t?.url&&o.test(t.url)){e.value=t.url,r.textContent=`현재 탭의 주소를 불러왔습니다.`;return}let n=await chrome.storage.local.get(`lastVodUrl`);n.lastVodUrl&&(e.value=n.lastVodUrl)}t.addEventListener(`click`,async()=>{let n=e.value.trim();if(!n||!o.test(n)){r.textContent=`치지직 영상 또는 클립 주소를 입력해 주세요.`;return}t.disabled=!0,r.textContent=`편집기에 추가하는 중입니다.`;try{await chrome.storage.local.set({lastVodUrl:n}),s=await l(n),f()}catch(e){r.textContent=e instanceof Error?e.message:String(e)}finally{t.disabled=!1}}),n.addEventListener(`click`,async()=>{let e=await d();if(e){let t=await chrome.tabs.update(e,{active:!0}).catch(()=>null);t?.windowId&&await chrome.windows.update(t.windowId,{focused:!0}),window.close();return}s=(await chrome.tabs.create({active:!0,url:chrome.runtime.getURL(`downloader.html`)})).id,window.close()});async function l(e){let t=await u();if(t){let n=await chrome.runtime.sendMessage({type:`EDITOR_ADD_VIDEO`,payload:{url:e,targetTabId:t}}).catch(()=>null);if(n&&n.ok!==!1)return t}return(await chrome.tabs.create({active:!1,url:chrome.runtime.getURL(`downloader.html?addUrl=${encodeURIComponent(e)}`)})).id??null}async function u(){return(await chrome.tabs.query({url:chrome.runtime.getURL(`downloader.html*`)}))[0]?.id||null}async function d(){return s&&await chrome.tabs.get(s).catch(()=>null)?s:u()}function f(){i.hidden=!0,a.hidden=!1}function p(e){let t=document.querySelector(e);if(!t)throw Error(`필수 UI 요소를 찾을 수 없습니다: ${e}`);return t}
 
+const urlInput = query("#vodUrl");
+const addButton = query("#addToEditor");
+const goButton = query("#goToEditor");
+const statusText = query("#status");
+const addView = query("#addView");
+const doneView = query("#doneView");
+const CHZZK_URL_PATTERN = /^https:\/\/chzzk\.naver\.com\/(?:video\/\d+|clips\/[A-Za-z0-9_-]+)/;
+
+let editorTabId = null;
+
+init().catch((error) => {
+  statusText.textContent = error instanceof Error ? error.message : String(error);
+});
+
+addButton.addEventListener("click", () => {
+  addCurrentInput().catch((error) => {
+    statusText.textContent = error instanceof Error ? error.message : String(error);
+  });
+});
+
+urlInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") {
+    return;
+  }
+  event.preventDefault();
+  addCurrentInput().catch((error) => {
+    statusText.textContent = error instanceof Error ? error.message : String(error);
+  });
+});
+
+goButton.addEventListener("click", async () => {
+  const response = await chrome.runtime.sendMessage({ type: "EDITOR_OPEN_WINDOW", payload: {} });
+  if (response?.ok !== false) {
+    window.close();
+  }
+});
+
+async function init() {
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (activeTab?.url && CHZZK_URL_PATTERN.test(activeTab.url)) {
+    urlInput.value = activeTab.url;
+    statusText.textContent = "현재 탭의 주소를 불러왔습니다.";
+    return;
+  }
+
+  const saved = await chrome.storage.local.get("lastVodUrl");
+  if (saved.lastVodUrl) {
+    urlInput.value = saved.lastVodUrl;
+  }
+}
+
+async function addCurrentInput() {
+  const url = urlInput.value.trim();
+  if (!url || !CHZZK_URL_PATTERN.test(url)) {
+    statusText.textContent = "치지직 영상 또는 클립 주소를 입력해 주세요.";
+    return;
+  }
+
+  addButton.disabled = true;
+  statusText.textContent = "편집기에 추가하는 중입니다.";
+  try {
+    await chrome.storage.local.set({ lastVodUrl: url });
+    const response = await chrome.runtime.sendMessage({
+      type: "EDITOR_OPEN_WINDOW",
+      payload: { addUrl: url },
+    });
+    if (response?.ok === false) {
+      throw Error(response.message || "편집기를 열지 못했습니다.");
+    }
+    editorTabId = response?.tabId ?? null;
+    showDoneView();
+  } finally {
+    addButton.disabled = false;
+  }
+}
+
+function showDoneView() {
+  addView.hidden = true;
+  doneView.hidden = false;
+}
+
+function query(selector) {
+  const element = document.querySelector(selector);
+  if (!element) {
+    throw Error(`필수 UI 요소를 찾을 수 없습니다: ${selector}`);
+  }
+  return element;
+}
