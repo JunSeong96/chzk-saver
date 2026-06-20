@@ -16,6 +16,10 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ installedAt: Date.now() });
 });
 
+chrome.action.onClicked.addListener(async () => {
+  await openOrFocusEditorWindow();
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender)
     .then((response) => sendResponse(response || { ok: true }))

@@ -30,7 +30,9 @@ const manifest = readJson("manifest.json");
 assertEqual(manifest.manifest_version, 3, "manifest_version must be 3");
 assertEqual(manifest.background?.type, "module", "background must be a module service worker");
 assertFile(manifest.background?.service_worker, "background service worker");
-assertFile(manifest.action?.default_popup, "action.default_popup");
+if (manifest.action?.default_popup) {
+  assertFile(manifest.action.default_popup, "action.default_popup");
+}
 
 for (const iconPath of Object.values(manifest.icons || {})) {
   assertFile(iconPath, "manifest icon");

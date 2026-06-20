@@ -11,6 +11,7 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       input: {
+        popup: "popup.html",
         downloader: "downloader.html",
         offscreen: "offscreen.html",
       },
