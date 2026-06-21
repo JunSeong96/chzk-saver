@@ -120,6 +120,7 @@ p {
 .options-menu {
   position: relative;
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .options-menu summary {
@@ -310,8 +311,12 @@ p {
 }
 
 .auto-source-panel .message {
-  flex: 0 0 auto;
+  flex: 1 0 100%;
   text-align: right;
+}
+
+.auto-source-panel .message:empty {
+  display: none;
 }
 
 .debug-panel {

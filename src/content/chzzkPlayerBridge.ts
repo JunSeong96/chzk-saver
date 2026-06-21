@@ -210,18 +210,67 @@ async function setPlaybackState(video, action) {
     return;
   }
 
-  if (action === "play") {
-    await playMediaElement(video);
-  } else {
-    pauseMediaElement(video);
-  }
-
-  if (!(await waitForPausedState(video, targetPaused))) {
+  if (!isClipPage()) {
+    await setPlaybackStateViaMedia(video, action);
+    if (await waitForSettledPausedState(video, targetPaused)) {
+      return;
+    }
     throw Error("Player playback state did not change.");
   }
+
+  if (await setPlaybackStateViaUi(video, action, targetPaused)) {
+    return;
+  }
+  await setPlaybackStateViaMedia(video, action, { allowMutedKickstart: true });
+  if (await waitForSettledPausedState(video, targetPaused)) {
+    return;
+  }
+  throw Error("Player playback state did not change.");
 }
-async function playMediaElement(video) {
-  await HTMLMediaElement.prototype.play.call(video);
+
+function isClipPage() {
+  return /^\/clips\//.test(location.pathname);
+}
+
+async function setPlaybackStateViaMedia(video, action, { allowMutedKickstart = false } = {}) {
+  if (action === "play") {
+    await playMediaElement(video, { allowMutedKickstart });
+    return;
+  }
+  pauseMediaElement(video);
+}
+
+async function setPlaybackStateViaUi(video, action, targetPaused) {
+  showPlayerControls(video, findPlayerRoot(video) || document);
+  const attempts = [
+    () => clickPlaybackControl(video, action),
+    () => clickVideoSurface(video),
+    () => sendKeyboardToggle(video),
+  ];
+  for (const attempt of attempts) {
+    if (!attempt()) {
+      continue;
+    }
+    if (await waitForSettledPausedState(video, targetPaused, 900)) {
+      return true;
+    }
+  }
+  return false;
+}
+async function playMediaElement(video, { allowMutedKickstart = false } = {}) {
+  try {
+    await HTMLMediaElement.prototype.play.call(video);
+  } catch (error) {
+    if (!allowMutedKickstart) {
+      throw error;
+    }
+    const wasMuted = video.muted;
+    video.muted = true;
+    await HTMLMediaElement.prototype.play.call(video);
+    window.setTimeout(() => {
+      video.muted = wasMuted;
+    }, 120);
+  }
 }
 
 function pauseMediaElement(video) {
@@ -233,12 +282,12 @@ function clickPlaybackControl(video, action) {
   if (!button) {
     return false;
   }
-  dispatchPointerClick(button);
+  dispatchPointerClick(button, { invokeClick: false });
   return true;
 }
 
 function clickVideoSurface(video) {
-  dispatchPointerClick(video);
+  dispatchPointerClick(video, { invokeClick: false });
   return true;
 }
 
@@ -257,11 +306,11 @@ function sendKeyboardToggle(video) {
   return true;
 }
 
-function dispatchPointerClick(element) {
+function dispatchPointerClick(element, options = {}) {
   const rect = element.getBoundingClientRect?.();
   const x = rect ? Math.round(rect.left + rect.width / 2) : Math.round(innerWidth / 2);
   const y = rect ? Math.round(rect.top + rect.height / 2) : Math.round(innerHeight / 2);
-  dispatchPointerClickAt(element, x, y);
+  dispatchPointerClickAt(element, x, y, options);
 }
 
 function dispatchPointClick(x, y) {
@@ -269,13 +318,15 @@ function dispatchPointClick(x, y) {
   dispatchPointerClickAt(target, x, y);
 }
 
-function dispatchPointerClickAt(element, x, y) {
+function dispatchPointerClickAt(element, x, y, { invokeClick = true } = {}) {
   element.dispatchEvent(new PointerEvent("pointerdown", pointerEventInit(x, y)));
   element.dispatchEvent(new MouseEvent("mousedown", mouseEventInit(x, y)));
   element.dispatchEvent(new PointerEvent("pointerup", pointerEventInit(x, y)));
   element.dispatchEvent(new MouseEvent("mouseup", mouseEventInit(x, y)));
   element.dispatchEvent(new MouseEvent("click", mouseEventInit(x, y)));
-  element.click?.();
+  if (invokeClick) {
+    element.click?.();
+  }
 }
 
 function showPlayerControls(video, root) {
@@ -761,7 +812,7 @@ function isVisibleElement(element) {
   return rect.width > 1 && rect.height > 1 && style.display !== "none" && style.visibility !== "hidden";
 }
 
-function waitForPausedState(video, paused) {
+function waitForPausedState(video, paused, timeoutMs = 700) {
   return new Promise((resolve) => {
     if (video.paused === paused) {
       resolve(true);
@@ -771,7 +822,7 @@ function waitForPausedState(video, paused) {
     const tick = () => {
       if (video.paused === paused) {
         resolve(true);
-      } else if (performance.now() - startedAt > 700) {
+      } else if (performance.now() - startedAt > timeoutMs) {
         resolve(false);
       } else {
         requestAnimationFrame(tick);
@@ -779,6 +830,14 @@ function waitForPausedState(video, paused) {
     };
     tick();
   });
+}
+
+async function waitForSettledPausedState(video, paused, timeoutMs = 700) {
+  if (!await waitForPausedState(video, paused, timeoutMs)) {
+    return false;
+  }
+  await delay(160);
+  return video.paused === paused;
 }
 
 function getPlayerState(video) {
