@@ -107,14 +107,75 @@ async function handleMessage(message, sender) {
     if (!Number.isFinite(tabId)) {
       throw Error("연결된 치지직 탭을 찾지 못했습니다.");
     }
-    await ensurePlayerBridge(tabId);
-    return await chrome.tabs.sendMessage(tabId, {
-      type: "CHZZK_PLAYER_COMMAND",
-      command: message.payload?.command,
-      time: message.payload?.time,
+    const command = message.payload?.command;
+    await emitDebugLog("background", "playerCommand.request", {
+      tabId,
+      command,
+      time: message.payload?.time ?? null,
     });
+    try {
+      const state = command === "qualityAuto"
+        ? await executeQualityAutoCommandInMainWorld(tabId)
+        : await executePlayerCommandInMainWorld(tabId, {
+          command,
+          time: message.payload?.time,
+        });
+      await emitDebugLog("background", "playerCommand.mainWorld.done", {
+        tabId,
+        command,
+        paused: state?.paused,
+        currentTime: state?.currentTime,
+        readyState: state?.readyState,
+        qualityAuto: state?.qualityAuto,
+        qualityMethod: state?.qualityMethod,
+        qualityButtonText: state?.qualityButtonText,
+        qualityMenuText: state?.qualityMenuText,
+        qualityPanelText: state?.qualityPanelText,
+        qualityOptionText: state?.qualityOptionText,
+        qualityAlgoVersion: state?.qualityAlgoVersion,
+        qualitySelected: state?.qualitySelected,
+        qualityPrevious: state?.qualityPrevious,
+        qualityTargetType: state?.qualityTargetType,
+        qualityTrackCount: state?.qualityTrackCount,
+        qualityTracks: state?.qualityTracks,
+      });
+      return { ok: true, state };
+    } catch (error) {
+      await emitDebugLog("background", "playerCommand.mainWorld.error", {
+        tabId,
+        command,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      await ensurePlayerBridge(tabId);
+      const response = await chrome.tabs.sendMessage(tabId, {
+        type: "CHZZK_PLAYER_COMMAND",
+        command,
+        time: message.payload?.time,
+      });
+      await emitDebugLog("background", "playerCommand.content.done", {
+        tabId,
+        command,
+        ok: response?.ok !== false,
+        paused: response?.state?.paused,
+        currentTime: response?.state?.currentTime,
+        readyState: response?.state?.readyState,
+        qualityAuto: response?.state?.qualityAuto,
+        qualityMethod: response?.state?.qualityMethod,
+        qualityButtonText: response?.state?.qualityButtonText,
+        qualityMenuText: response?.state?.qualityMenuText,
+        qualityPanelText: response?.state?.qualityPanelText,
+        qualityOptionText: response?.state?.qualityOptionText,
+        qualityAlgoVersion: response?.state?.qualityAlgoVersion,
+        qualitySelected: response?.state?.qualitySelected,
+        qualityPrevious: response?.state?.qualityPrevious,
+        qualityTargetType: response?.state?.qualityTargetType,
+        qualityTrackCount: response?.state?.qualityTrackCount,
+        qualityTracks: response?.state?.qualityTracks,
+        message: response?.message || "",
+      });
+      return response;
+    }
   }
-
   if (message.type === "DOWNLOAD_QUEUE_JOB") {
     await sendToOffscreen("OFFSCREEN_QUEUE_JOB", message.payload);
     return { ok: true };
@@ -162,18 +223,19 @@ async function handleMessage(message, sender) {
 
   if (message.target === "background" && message.type === "OFFSCREEN_SAVE_FILE") {
     const payload = message.payload;
+    const startedAt = new Date(Date.now() - 2000).toISOString();
     await emitDebugLog("background", "saveFile.start", {
       filename: payload.filename,
       objectUrl: Boolean(payload.objectUrl),
     });
-    await waitForDownload(
-      await chrome.downloads.download({
-        url: payload.objectUrl,
-        filename: ensureMp4Filename(payload.filename),
-        saveAs: false,
-        conflictAction: "uniquify",
-      }),
-    );
+    const downloadId = await chrome.downloads.download({
+      url: payload.objectUrl,
+      filename: ensureMp4Filename(payload.filename),
+      saveAs: false,
+      conflictAction: "uniquify",
+    });
+    const download = await waitForDownloadItem(downloadId);
+    await cleanupTmpDownloadsNear(download, startedAt);
     await emitDebugLog("background", "saveFile.done", {
       filename: payload.filename,
     });
@@ -193,6 +255,1262 @@ async function handleMessage(message, sender) {
   }
 
   return { ok: true };
+}
+
+async function executePlayerCommandInMainWorld(tabId, payload) {
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: runPlayerCommandInPage,
+    args: [payload],
+  });
+  if (!result?.result) {
+    throw Error("Player command did not return a state.");
+  }
+  return result.result;
+}
+
+async function executeQualityAutoCommandInMainWorld(tabId) {
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: runQualityAutoCommandInPage,
+  });
+  if (!result?.result) {
+    throw Error("Quality command did not return a state.");
+  }
+  return result.result;
+}
+
+async function runQualityAutoCommandInPage() {
+  const video = await waitForVideo();
+  const qualityResult = await setQualityAuto(video);
+  return { ...getPlayerState(video), ...qualityResult, mainWorld: true };
+
+  async function waitForVideo() {
+    const existing = findVideo();
+    if (existing) {
+      return existing;
+    }
+    return new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      const observer = new MutationObserver(() => {
+        const video = findVideo();
+        if (video) {
+          observer.disconnect();
+          resolve(video);
+        } else if (Date.now() - startedAt > 10000) {
+          observer.disconnect();
+          reject(Error("CHZZK player video not found."));
+        }
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    });
+  }
+
+  function findVideo() {
+    const videos = [...document.querySelectorAll("video")];
+    return videos
+      .map((video) => ({ video, score: getVideoScore(video) }))
+      .sort((a, b) => b.score - a.score)[0]?.video || null;
+  }
+
+  async function setQualityAuto(video) {
+    const qualityAlgoVersion = "quality-auto-neder2-videoTracks-2026-06-22-1";
+    const preferredHeight = 1080;
+    const player = findPlayerRoot(video) || video;
+    const trackTarget = findVideoTrackListTarget(player) || findVideoTrackListTarget(video) || findVideoTrackListTarget(document);
+    const trackList = trackTarget?.trackList || null;
+    const tracks = toTrackArray(trackList);
+    const selectedTrack = getSelectedTrack(tracks, trackList);
+
+    if (!tracks.length) {
+      const fallback = await selectPreferredQualityFromPzpMenu(video, preferredHeight, qualityAlgoVersion, "tracks-missing");
+      if (fallback.qualityAuto) {
+        return fallback;
+      }
+      return {
+        qualityAuto: false,
+        qualityMethod: "neder2-videoTracks-tracks-missing",
+        qualityAlgoVersion,
+        qualityTargetType: describeQualityTarget(trackTarget?.target || player),
+        qualityTrackCount: 0,
+        qualityTrackerLength: Array.isArray(readLooseProp(window, "__chzzkSaverQualityTargets"))
+          ? readLooseProp(window, "__chzzkSaverQualityTargets").length
+          : null,
+        qualityFallbackMethod: fallback.qualityMethod,
+        qualityFallbackText: fallback.qualityFallbackText,
+      };
+    }
+
+    const targetTrack = pickTargetTrack(tracks, selectedTrack, preferredHeight);
+    if (!targetTrack) {
+      const fallback = await selectPreferredQualityFromPzpMenu(video, preferredHeight, qualityAlgoVersion, "unavailable");
+      if (fallback.qualityAuto) {
+        return fallback;
+      }
+      return {
+        qualityAuto: false,
+        qualityMethod: "neder2-videoTracks-unavailable",
+        qualityAlgoVersion,
+        qualitySelected: describeTrack(selectedTrack),
+        qualityTargetType: describeQualityTarget(trackTarget?.target),
+        qualityTrackCount: tracks.length,
+        qualityTracks: describeTracks(tracks),
+        qualityFallbackMethod: fallback.qualityMethod,
+        qualityFallbackText: fallback.qualityFallbackText,
+      };
+    }
+
+    const targetHeight = getTrackHeight(targetTrack);
+    if (selectedTrack && trackMatchesHeight(selectedTrack, targetHeight)) {
+      return {
+        qualityAuto: true,
+        qualityMethod: "neder2-videoTracks-already",
+        qualityAlgoVersion,
+        qualitySelected: describeTrack(selectedTrack),
+        qualityTargetType: describeQualityTarget(trackTarget?.target),
+        qualityTrackCount: tracks.length,
+        qualityTracks: describeTracks(tracks),
+      };
+    }
+
+    const currentTime = Number(video?.currentTime);
+    const shouldResume = video?.paused === false;
+    const selected = selectTrack(trackList, tracks, targetTrack);
+    if (selected) {
+      restorePlaybackAfterQualityChange(video, currentTime, shouldResume);
+    }
+
+    return {
+      qualityAuto: selected,
+      qualityMethod: selected ? "neder2-videoTracks-selected" : "neder2-videoTracks-pending",
+      qualityAlgoVersion,
+      qualitySelected: describeTrack(targetTrack),
+      qualityPrevious: describeTrack(selectedTrack),
+      qualityTargetType: describeQualityTarget(trackTarget?.target),
+      qualityTrackCount: tracks.length,
+      qualityTracks: describeTracks(tracks),
+    };
+  }
+
+  async function selectPreferredQualityFromPzpMenu(video, preferredHeight, qualityAlgoVersion, reason) {
+    const root = findPlayerRoot(video) || document;
+    const settingsButton = root.querySelector?.(".pzp-setting-button, .pzp-pc-setting-button, .pzp-pc__setting-button")
+      || document.querySelector(".pzp-setting-button, .pzp-pc-setting-button, .pzp-pc__setting-button");
+    if (!settingsButton || !isVisibleElement(settingsButton)) {
+      return {
+        qualityAuto: false,
+        qualityMethod: `neder2-videoTracks-${reason}-pzp-settings-missing`,
+        qualityAlgoVersion,
+      };
+    }
+
+    showPlayerControls(video, root);
+    dispatchPointerClick(settingsButton);
+    await delay(180);
+
+    const settingsPanel = findVisiblePzpPanel(".pzp-settings, .pzp-pc-settings, .pzp-pc__settings");
+    const qualityMenuItem = findBestVisibleElement(
+      settingsPanel || document,
+      ".pzp-ui-setting-pane-item, .pzp-setting-pane-item, li, button, [role='menuitem'], [role='button']",
+      (element) => {
+        const text = getHumanText(element);
+        return /\uD574\uC0C1\uB3C4|resolution|quality/i.test(text) && /(?:\d{3,4}p|auto|\uC790\uB3D9)/i.test(text);
+      }
+    );
+
+    if (!qualityMenuItem) {
+      sendEscape(root);
+      return {
+        qualityAuto: false,
+        qualityMethod: `neder2-videoTracks-${reason}-pzp-quality-menu-missing`,
+        qualityAlgoVersion,
+        qualityFallbackText: cleanDebugText(getHumanText(settingsPanel || document.body)),
+      };
+    }
+
+    dispatchPointerClick(getClickableElement(qualityMenuItem));
+    await delay(180);
+
+    const qualityPanel = findVisiblePzpPanel(".pzp-setting-quality-pane__flexbox, .pzp-setting-quality-pane__list-container, .pzp-settings, .pzp-pc-settings");
+    const optionElements = [
+      ...((qualityPanel || document).querySelectorAll?.(".pzp-ui-setting-quality-item, .pzp-ui-setting-pane-item, li, button, [role='option'], [role='menuitem'], [role='button']") || []),
+    ].filter((element) => isVisibleElement(element) && cleanDebugText(getHumanText(element)));
+
+    const preferredText = `${preferredHeight}p`;
+    let targetOption = optionElements.find((element) => new RegExp(`(^|[^\\d])${preferredHeight}\\s*p([^\\d]|$)`, "i").test(getHumanText(element)));
+    let fallbackText = preferredText;
+
+    if (!targetOption) {
+      const lowerOptions = optionElements
+        .map((element) => {
+          const match = getHumanText(element).match(/(?:^|[^\d])(\d{3,4})\s*p(?:[^\d]|$)/i);
+          return match ? { element, height: Number(match[1]) } : null;
+        })
+        .filter((item) => item && item.height < preferredHeight)
+        .sort((a, b) => b.height - a.height);
+      targetOption = lowerOptions[0]?.element || null;
+      fallbackText = lowerOptions[0] ? `${lowerOptions[0].height}p` : "";
+    }
+
+    if (!targetOption) {
+      sendEscape(root);
+      return {
+        qualityAuto: false,
+        qualityMethod: `neder2-videoTracks-${reason}-pzp-quality-option-missing`,
+        qualityAlgoVersion,
+        qualityFallbackText: cleanDebugText(getHumanText(qualityPanel || document.body)),
+      };
+    }
+
+    const optionText = cleanDebugText(getHumanText(targetOption));
+    dispatchPointerClick(getClickableElement(targetOption));
+    await delay(180);
+
+    return {
+      qualityAuto: true,
+      qualityMethod: `neder2-videoTracks-${reason}-pzp-selected`,
+      qualityAlgoVersion,
+      qualityOptionText: optionText,
+      qualityFallbackText: fallbackText,
+      qualityTargetType: describeQualityTarget(settingsButton),
+      qualityTrackCount: 0,
+      qualityTrackerLength: Array.isArray(readLooseProp(window, "__chzzkSaverQualityTargets"))
+        ? readLooseProp(window, "__chzzkSaverQualityTargets").length
+        : null,
+    };
+  }
+
+  function findVisiblePzpPanel(selector) {
+    return [...document.querySelectorAll(selector)]
+      .filter(isVisibleElement)
+      .sort((a, b) => visibleArea(b) - visibleArea(a))[0] || null;
+  }
+
+  function visibleArea(element) {
+    if (!isVisibleElement(element)) {
+      return 0;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width * rect.height;
+  }
+
+  function findBestVisibleElement(root, selector, predicate) {
+    return [...root.querySelectorAll(selector)]
+      .filter((element) => isVisibleElement(element) && predicate(element))
+      .sort((a, b) => {
+        const aText = getHumanText(a);
+        const bText = getHumanText(b);
+        const aScore = (/pzp-ui-setting-pane-item|pzp-setting-pane-item/.test(String(a.className || "")) ? 100 : 0) - aText.length;
+        const bScore = (/pzp-ui-setting-pane-item|pzp-setting-pane-item/.test(String(b.className || "")) ? 100 : 0) - bText.length;
+        return bScore - aScore;
+      })[0] || null;
+  }
+
+  function findVideoTrackListTarget(root) {
+    for (const target of collectQualityTargets(root)) {
+      if (target instanceof HTMLElement && !target.isConnected) {
+        continue;
+      }
+      const trackList = getTrackListFromTarget(target);
+      if (trackList) {
+        return { target, trackList };
+      }
+    }
+    return null;
+  }
+
+  function collectQualityTargets(root) {
+    const targets = [];
+    const seen = new WeakSet();
+    const keys = [
+      "_corePlayer",
+      "corePlayer",
+      "_player",
+      "player",
+      "_controller",
+      "controller",
+      "_mediaController",
+      "mediaController",
+    ];
+
+    const add = (target, depth) => {
+      if (!target || (typeof target !== "object" && typeof target !== "function")) {
+        return;
+      }
+      if (seen.has(target)) {
+        return;
+      }
+      seen.add(target);
+      targets.push(target);
+      if (depth <= 0) {
+        return;
+      }
+      for (const key of keys) {
+        add(readLooseProp(target, key), depth - 1);
+      }
+    };
+
+    add(root, 3);
+    const trackedTargets = readLooseProp(window, "__chzzkSaverQualityTargets");
+    if (Array.isArray(trackedTargets)) {
+      for (const target of trackedTargets) {
+        add(target, 3);
+      }
+    }
+    if (root instanceof Element) {
+      for (const selector of ["video", "pzp-pc", "pzp-player", "pzp-core-player", "pzp-pc-player", "[class^='pzp']", "[class*=' pzp']"]) {
+        for (const element of root.querySelectorAll(selector)) {
+          add(element, 3);
+        }
+      }
+    }
+    for (const selector of ["#player_layout", ".chzzk_player", "video", "pzp-pc", "pzp-player", "pzp-core-player", "pzp-pc-player", "[class^='pzp']", "[class*=' pzp']"]) {
+      for (const element of document.querySelectorAll(selector)) {
+        add(element, 3);
+      }
+    }
+    return targets;
+  }
+
+  function readLooseProp(target, prop) {
+    try {
+      return target?.[prop];
+    } catch {
+      return null;
+    }
+  }
+
+  function getTrackListFromTarget(target) {
+    const tracks = readLooseProp(target, "videoTracks");
+    return tracks && Number.isFinite(Number(tracks.length)) && Number(tracks.length) > 0
+      ? tracks
+      : null;
+  }
+
+  function toTrackArray(trackList) {
+    const tracks = [];
+    const length = Number(trackList?.length) || 0;
+    for (let index = 0; index < length; index += 1) {
+      const track = trackList[index] || trackList.item?.(index);
+      if (track) {
+        tracks.push(track);
+      }
+    }
+    return tracks;
+  }
+
+  function pushTrackTextPart(parts, value) {
+    if (value == null || value === "") {
+      return;
+    }
+    if (typeof value === "object") {
+      const width = Number(readLooseProp(value, "width") || readLooseProp(value, "videoWidth"));
+      const height = Number(readLooseProp(value, "height") || readLooseProp(value, "videoHeight"));
+      if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+        parts.push(`${Math.round(width)}x${Math.round(height)}`);
+      }
+      return;
+    }
+    parts.push(String(value));
+  }
+
+  function pushTrackTextProp(parts, target, prop) {
+    pushTrackTextPart(parts, readLooseProp(target, prop));
+  }
+
+  function trackText(track) {
+    const parts = [];
+    [
+      "id",
+      "label",
+      "kind",
+      "videoQuality",
+      "qualityLabel",
+      "quality",
+      "resolution",
+      "displayResolution",
+      "height",
+      "width",
+      "videoHeight",
+      "videoWidth",
+      "videoBitrate",
+      "encodingOptionID",
+      "encodingOptionId",
+      "src",
+      "baseUrl",
+      "url",
+    ].forEach((prop) => pushTrackTextProp(parts, track, prop));
+
+    const dataset = readLooseProp(track, "dataset");
+    [
+      "encodingTrackId",
+      "encodingOptionID",
+      "encodingOptionId",
+      "quality",
+      "qualityLabel",
+      "label",
+      "resolution",
+      "height",
+      "videoHeight",
+      "width",
+      "videoWidth",
+    ].forEach((prop) => pushTrackTextProp(parts, dataset, prop));
+
+    const attributes = readLooseProp(track, "attributes");
+    ["RESOLUTION", "resolution", "height", "videoHeight", "BANDWIDTH", "bandwidth"]
+      .forEach((prop) => pushTrackTextProp(parts, attributes, prop));
+
+    return parts.join(" ").toLowerCase();
+  }
+
+  function isAutomaticTrack(track) {
+    const text = trackText(track);
+    return text.includes("abr") || text.includes("auto") || text.includes("\uC790\uB3D9");
+  }
+
+  function readNumericHeight(target, props) {
+    for (const prop of props) {
+      const value = Number(readLooseProp(target, prop));
+      if (Number.isFinite(value) && value > 0) {
+        return Math.round(value);
+      }
+    }
+    return NaN;
+  }
+
+  function getTrackHeight(track) {
+    const directHeight = readNumericHeight(track, ["height", "videoHeight"]);
+    if (Number.isFinite(directHeight)) {
+      return directHeight;
+    }
+    const datasetHeight = readNumericHeight(readLooseProp(track, "dataset"), ["height", "videoHeight"]);
+    if (Number.isFinite(datasetHeight)) {
+      return datasetHeight;
+    }
+    const attributesHeight = readNumericHeight(readLooseProp(track, "attributes"), ["height", "videoHeight"]);
+    if (Number.isFinite(attributesHeight)) {
+      return attributesHeight;
+    }
+
+    const text = trackText(track);
+    const resolutionMatch = text.match(/\b\d{3,5}\s*x\s*(\d{3,4})\b/);
+    if (resolutionMatch) {
+      return Number(resolutionMatch[1]);
+    }
+    const labelMatch = text.match(/(?:^|[^\d])(\d{3,4})\s*p(?:\b|[^\d])/);
+    return labelMatch ? Number(labelMatch[1]) : NaN;
+  }
+
+  function getSelectedTrack(tracks, trackList) {
+    const selectedTrack = tracks.find((track) => track?.selected);
+    if (selectedTrack) {
+      return selectedTrack;
+    }
+    const selectedIndex = Number(trackList?.selectedIndex);
+    if (Number.isInteger(selectedIndex) && selectedIndex >= 0 && tracks[selectedIndex]) {
+      return tracks[selectedIndex];
+    }
+    return null;
+  }
+
+  function getSelectableTrackCandidates(tracks) {
+    const candidates = [];
+    for (const track of tracks) {
+      if (isAutomaticTrack(track)) {
+        continue;
+      }
+      const height = getTrackHeight(track);
+      if (Number.isFinite(height)) {
+        candidates.push({ track, height });
+      }
+    }
+    return candidates;
+  }
+
+  function scoreTrack(track, selectedTrack) {
+    let score = 0;
+    const text = trackText(track);
+    if (track?.kind && selectedTrack?.kind && track.kind === selectedTrack.kind) {
+      score += 20;
+    }
+    if (!text.includes("p2p")) {
+      score += 8;
+    }
+    if (text.includes("low-latency")) {
+      score += 4;
+    }
+    if (Number.isFinite(Number(track?.videoBitrate))) {
+      score += Math.min(Number(track.videoBitrate) / 1000000, 10);
+    }
+    return score;
+  }
+
+  function pickTargetTrack(tracks, selectedTrack, preferredHeight) {
+    const candidates = getSelectableTrackCandidates(tracks);
+    if (!candidates.length) {
+      return null;
+    }
+
+    const exactCandidates = candidates.filter((candidate) => candidate.height === preferredHeight);
+    if (exactCandidates.length) {
+      exactCandidates.sort((a, b) => scoreTrack(b.track, selectedTrack) - scoreTrack(a.track, selectedTrack));
+      return exactCandidates[0].track;
+    }
+
+    const lowerCandidates = candidates.filter((candidate) => candidate.height < preferredHeight);
+    if (!lowerCandidates.length) {
+      return null;
+    }
+
+    const fallbackHeight = Math.max(...lowerCandidates.map((candidate) => candidate.height));
+    const fallbackCandidates = lowerCandidates.filter((candidate) => candidate.height === fallbackHeight);
+    fallbackCandidates.sort((a, b) => scoreTrack(b.track, selectedTrack) - scoreTrack(a.track, selectedTrack));
+    return fallbackCandidates[0].track;
+  }
+
+  function trackMatchesHeight(track, height) {
+    return !isAutomaticTrack(track) && getTrackHeight(track) === height;
+  }
+
+  function selectTrack(trackList, tracks, targetTrack) {
+    const targetIndex = tracks.indexOf(targetTrack);
+    for (const track of tracks) {
+      if (track === targetTrack) {
+        continue;
+      }
+      try {
+        if (track?.selected) {
+          track.selected = false;
+        }
+      } catch {
+        // Some player adapters expose selected as readonly.
+      }
+    }
+
+    try {
+      targetTrack.selected = true;
+    } catch {
+      // Fall back to selectedIndex when the track object rejects writes.
+    }
+
+    try {
+      if (targetIndex >= 0 && Number(trackList?.selectedIndex) !== targetIndex) {
+        trackList.selectedIndex = targetIndex;
+      }
+    } catch {
+      // selectedIndex is not writable on every PZP adapter.
+    }
+
+    const selectedIndex = Number(trackList?.selectedIndex);
+    const selectedTrack = Number.isInteger(selectedIndex) && selectedIndex >= 0
+      ? tracks[selectedIndex]
+      : getSelectedTrack(tracks, trackList);
+
+    return selectedTrack === targetTrack || targetTrack.selected === true;
+  }
+
+  function restorePlaybackAfterQualityChange(video, currentTime, shouldResume) {
+    setTimeout(() => {
+      const nextVideo = findVideo() || video;
+      if (!(nextVideo instanceof HTMLVideoElement)) {
+        return;
+      }
+      if (Number.isFinite(currentTime) && currentTime > 1 && Number(nextVideo.currentTime) < 1) {
+        try {
+          nextVideo.currentTime = currentTime;
+        } catch {
+          // Some streams reject seeks until metadata is ready.
+        }
+      }
+      if (shouldResume && nextVideo.paused) {
+        nextVideo.play?.()?.catch?.(() => {});
+      }
+    }, 250);
+  }
+
+  function describeTrack(track) {
+    if (!track) {
+      return null;
+    }
+    const height = getTrackHeight(track);
+    return {
+      id: String(track.id || ""),
+      label: String(track.label || ""),
+      kind: String(track.kind || ""),
+      qualityLabel: String(track.qualityLabel || ""),
+      height: Number.isFinite(height) ? height : null,
+      automatic: isAutomaticTrack(track),
+      selected: Boolean(track.selected),
+    };
+  }
+
+  function describeTracks(tracks) {
+    return tracks.map(describeTrack).slice(0, 12);
+  }
+
+  function describeQualityTarget(target) {
+    if (!target) {
+      return "";
+    }
+    if (target instanceof Element) {
+      return [
+        target.localName,
+        target.id ? `#${target.id}` : "",
+        target.className ? `.${String(target.className).trim().replace(/\s+/g, ".")}` : "",
+      ].join("");
+    }
+    return String(target.constructor?.name || typeof target);
+  }
+
+  function findQualitySelect(root) {
+    return [...root.querySelectorAll("select")]
+      .find((select) => [...select.options].some((option) => isAutoText(option.textContent) || isQualityText(option.textContent))) || null;
+  }
+
+  function findQualityButton(root) {
+    const controls = [...root.querySelectorAll("button, [role='button'], [role='menuitem'], [role='option'], [aria-label], [title], [data-testid], [class*='quality'], [class*='resolution']")]
+      .filter((element) => isVisibleElement(element) && isCompactControl(element));
+    return controls
+      .map((element) => ({ element, score: getQualityControlScore(element) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.element || null;
+  }
+
+  function getQualityControlScore(element) {
+    if (!isCompactControl(element)) {
+      return 0;
+    }
+    const text = getElementText(element);
+    let score = 0;
+    if (/quality|resolution|pzp.*quality|\uD654\uC9C8|\uD574\uC0C1\uB3C4/i.test(text)) {
+      score += 100;
+    }
+    if (isQualityText(text)) {
+      score += 45;
+    }
+    if (score <= 0) {
+      return 0;
+    }
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 120 && rect.height <= 80) {
+      score += 8;
+    }
+    return score;
+  }
+
+  function findSettingsButton(root) {
+    const controls = [...root.querySelectorAll("button, [role='button'], [aria-label], [title], [data-testid], [class*='setting']")]
+      .filter((element) => isVisibleElement(element) && isCompactControl(element));
+    return controls
+      .map((element) => ({ element, score: getSettingsControlScore(element) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.element || null;
+  }
+
+  function getSettingsControlScore(element) {
+    if (!isCompactControl(element)) {
+      return 0;
+    }
+    const text = getElementText(element);
+    if (/clip|custom__clip|pip|fullscreen|viewmode|volume|playback|prev|next|클립|전체\s*화면|넓은\s*화면/i.test(text) && !/pzp-setting-button|pzp-pc-setting-button/i.test(text)) {
+      return 0;
+    }
+    let score = 0;
+    if (/pzp-setting-button|pzp-pc-setting-button/i.test(text)) {
+      score += 180;
+    }
+    if (/(^|\s)\uC124\uC815(\s|$)|menu open|open settings/i.test(text)) {
+      score += 90;
+    }
+    if (/setting|settings|option|options|pzp.*setting|\uC124\uC815|\uBA54\uB274/i.test(text)) {
+      score += 100;
+    }
+    if (score <= 0) {
+      return 0;
+    }
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 80 && rect.height <= 80) {
+      score += 12;
+    }
+    return score;
+  }
+
+  function findSettingsButtonByPosition(root, video) {
+    const playerRect = (findPlayerRoot(video) || video).getBoundingClientRect();
+    const controls = [...root.querySelectorAll("button, [role='button'], [aria-label], [title], [data-testid], [class]")]
+      .filter((element) => isVisibleElement(element) && isCompactControl(element))
+      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+      .filter(({ rect }) => {
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        return (
+          centerX >= playerRect.left + playerRect.width * 0.52 &&
+          centerX <= playerRect.right + 8 &&
+          centerY >= playerRect.bottom - Math.max(140, playerRect.height * 0.2) &&
+          centerY <= playerRect.bottom + 12
+        );
+      })
+      .sort((a, b) => {
+        const aCenterX = a.rect.left + a.rect.width / 2;
+        const bCenterX = b.rect.left + b.rect.width / 2;
+        return bCenterX - aCenterX;
+      });
+
+    return controls[2]?.element || controls[1]?.element || controls[0]?.element || null;
+  }
+
+  function findAutoQualityOption(root) {
+    const options = [...root.querySelectorAll("button, [role='button'], [role='menuitem'], [role='option'], li, div, span, [aria-label], [title], [data-testid], [class*='quality']")]
+      .filter((element) => isVisibleElement(element) && isMenuOptionCandidate(element) && isAutoText(getElementText(element)));
+    return options
+      .map((element) => ({ element, score: getAutoOptionScore(element) }))
+      .sort((a, b) => b.score - a.score)[0]?.element || null;
+  }
+
+  function findQualityMenuItem(root) {
+    const options = [...root.querySelectorAll("button, [role='button'], [role='menuitem'], [role='option'], li, div, span, [aria-label], [title], [data-testid], [class*='quality'], [class*='resolution']")]
+      .filter((element) => isVisibleElement(element) && isMenuOptionCandidate(element));
+    return options
+      .map((element) => ({ element, score: getQualityMenuItemScore(element) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.element || null;
+  }
+
+  function getQualityMenuItemScore(element) {
+    const text = getElementText(element);
+    let score = 0;
+    if (/\uD654\uC9C8|\uD574\uC0C1\uB3C4|quality|resolution/i.test(text)) {
+      score += 100;
+    }
+    if (isQualityText(text)) {
+      score += 50;
+    }
+    if (element.getAttribute("role") === "menuitem" || element.getAttribute("role") === "option") {
+      score += 12;
+    }
+    return score;
+  }
+
+  function getAutoOptionScore(element) {
+    const text = getElementText(element).trim();
+    let score = /^\uC790\uB3D9(?:\s*\([^)]+\))?$|^auto(?:\s*\([^)]+\))?$/i.test(text) ? 100 : 20;
+    if (element.getAttribute("role") === "option" || element.getAttribute("role") === "menuitem") {
+      score += 10;
+    }
+    return score;
+  }
+
+  function getClickableElement(element) {
+    return element.closest("button, [role='button'], [role='menuitem'], [role='option'], li") || element;
+  }
+
+  function findMenuPanel(anchor) {
+    const anchorRect = anchor.getBoundingClientRect();
+    const anchorCenterX = anchorRect.left + anchorRect.width / 2;
+    const menuPattern = /\uD654\uC9C8|\uD574\uC0C1\uB3C4|\uC790\uB3D9|144p|720p|1080p|resolution|quality|auto/i;
+    const preferred = [...document.querySelectorAll(".pzp-settings, .pzp-pc-settings, .pzp-setting-quality-pane__flexbox, .pzp-setting-quality-pane__list-container")]
+      .filter((element) => isVisibleElement(element) && element !== anchor && !anchor.contains(element))
+      .map((element) => ({
+        element,
+        rect: element.getBoundingClientRect(),
+        text: cleanDebugText(getHumanText(element)),
+        classText: String(element.className || ""),
+      }))
+      .filter(({ rect, text }) => (
+        menuPattern.test(text) &&
+        rect.width >= 160 &&
+        rect.width <= 460 &&
+        rect.height >= 60 &&
+        rect.height <= 460 &&
+        rect.left <= anchorRect.right + 260 &&
+        rect.right >= anchorRect.left - 460 &&
+        rect.bottom <= anchorRect.top + Math.max(120, anchorRect.height * 3)
+      ))
+      .sort((a, b) => {
+        const aScore = (/pzp-settings|pzp-pc-settings|quality-pane/i.test(a.classText) ? 20000 : 0);
+        const bScore = (/pzp-settings|pzp-pc-settings|quality-pane/i.test(b.classText) ? 20000 : 0);
+        const aDistance = Math.abs((a.rect.left + a.rect.width / 2) - anchorCenterX) + Math.abs(a.rect.bottom - anchorRect.top);
+        const bDistance = Math.abs((b.rect.left + b.rect.width / 2) - anchorCenterX) + Math.abs(b.rect.bottom - anchorRect.top);
+        return (bScore - aScore) || (aDistance - bDistance);
+      });
+    if (preferred[0]) {
+      return preferred[0].element;
+    }
+    const candidates = [...document.querySelectorAll("div, ul, ol, [role='menu'], [role='listbox'], [class]")]
+      .filter((element) => isVisibleElement(element) && element !== anchor && !anchor.contains(element))
+      .map((element) => ({
+        element,
+        rect: element.getBoundingClientRect(),
+        text: cleanDebugText(getHumanText(element)),
+        rawTextLength: String(getHumanText(element) || "").replace(/\s+/g, " ").trim().length,
+        classText: String(element.className || ""),
+      }))
+      .filter(({ rect, rawTextLength, text, classText }) => (
+        rect.width >= 180 &&
+        rect.width <= 420 &&
+        rect.height >= 64 &&
+        rect.height <= 420 &&
+        rawTextLength <= 700 &&
+        (menuPattern.test(text) || /pzp-settings|pzp-pc-settings|quality-pane|setting.*panel/i.test(classText)) &&
+        rect.left >= 0 &&
+        rect.right <= innerWidth + 8 &&
+        rect.top >= 0 &&
+        rect.bottom <= anchorRect.top + Math.max(96, anchorRect.height * 2) &&
+        rect.left <= anchorRect.right + 240 &&
+        rect.right >= anchorRect.left - 440
+      ))
+      .sort((a, b) => {
+        const aScore = (/pzp-settings|setting.*panel/i.test(a.classText) ? 20000 : 0) + (menuPattern.test(a.text) ? 10000 : 0);
+        const bScore = (/pzp-settings|setting.*panel/i.test(b.classText) ? 20000 : 0) + (menuPattern.test(b.text) ? 10000 : 0);
+        const aDistance = Math.abs((a.rect.left + a.rect.width / 2) - anchorCenterX) + Math.abs(a.rect.bottom - anchorRect.top);
+        const bDistance = Math.abs((b.rect.left + b.rect.width / 2) - anchorCenterX) + Math.abs(b.rect.bottom - anchorRect.top);
+        return (bScore - aScore) || (aDistance - bDistance);
+      });
+    return candidates[0]?.element || null;
+  }
+
+  function clickMenuRowNearAnchor(anchor, rowIndex, mode) {
+    const panel = findMenuPanel(anchor);
+    if (!panel) {
+      return false;
+    }
+    const rect = panel.getBoundingClientRect();
+    const hasHeader = mode === "option" && /\uD574\uC0C1\uB3C4|quality|resolution/i.test(getHumanText(panel));
+    const headerOffset = hasHeader ? Math.min(96, Math.max(48, rect.height * 0.22)) : 0;
+    const usableHeight = Math.max(40, rect.height - headerOffset);
+    const rowCount = mode === "menu" ? 4 : Math.max(1, Math.round(usableHeight / 64));
+    const rowHeight = Math.min(76, Math.max(44, usableHeight / rowCount));
+    const x = Math.round(rect.left + rect.width / 2);
+    const y = Math.round(rect.top + headerOffset + rowHeight * (rowIndex + 0.5));
+    dispatchPointClick(x, y);
+    return true;
+  }
+
+  function showPlayerControls(video, root) {
+    const rect = video.getBoundingClientRect();
+    const x = Math.round(rect.left + rect.width / 2) || Math.round(innerWidth / 2);
+    const y = Math.round(rect.top + rect.height / 2) || Math.round(innerHeight / 2);
+    for (const target of [video, root].filter(Boolean)) {
+      target.dispatchEvent(new PointerEvent("pointermove", { ...pointerEventInit(), clientX: x, clientY: y, buttons: 0 }));
+      target.dispatchEvent(new MouseEvent("mousemove", { ...mouseEventInit(), clientX: x, clientY: y, buttons: 0 }));
+    }
+  }
+
+  function dispatchPointerClick(element) {
+    const rect = element.getBoundingClientRect?.();
+    const x = rect ? Math.round(rect.left + rect.width / 2) : Math.round(innerWidth / 2);
+    const y = rect ? Math.round(rect.top + rect.height / 2) : Math.round(innerHeight / 2);
+    dispatchPointerClickAt(element, x, y);
+  }
+
+  function dispatchPointClick(x, y) {
+    const target = document.elementFromPoint(x, y) || document.body;
+    dispatchPointerClickAt(target, x, y);
+  }
+
+  function dispatchPointerClickAt(element, x, y) {
+    element.dispatchEvent(new PointerEvent("pointerdown", pointerEventInit(x, y)));
+    element.dispatchEvent(new MouseEvent("mousedown", mouseEventInit(x, y)));
+    element.dispatchEvent(new PointerEvent("pointerup", pointerEventInit(x, y)));
+    element.dispatchEvent(new MouseEvent("mouseup", mouseEventInit(x, y)));
+    element.dispatchEvent(new MouseEvent("click", mouseEventInit(x, y)));
+    element.click?.();
+  }
+
+  function pointerEventInit(x = Math.round(innerWidth / 2), y = Math.round(innerHeight / 2)) {
+    return {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: x,
+      clientY: y,
+    };
+  }
+
+  function mouseEventInit(x = Math.round(innerWidth / 2), y = Math.round(innerHeight / 2)) {
+    return {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      button: 0,
+      buttons: 1,
+      clientX: x,
+      clientY: y,
+    };
+  }
+
+  function findPlayerRoot(video) {
+    const videoRect = video.getBoundingClientRect();
+    let best = null;
+    let node = video.parentElement;
+    while (node && node !== document.documentElement) {
+      const text = `${node.id || ""} ${node.className || ""}`;
+      const rect = node.getBoundingClientRect();
+      const overlapsVideo = rect.left <= videoRect.left + 2 && rect.right >= videoRect.right - 2 && rect.top <= videoRect.top + 2 && rect.bottom >= videoRect.bottom - 2;
+      if (overlapsVideo) {
+        const buttonCount = [...node.querySelectorAll("button, [role='button'], [aria-label], [title], [data-testid]")].filter(isVisibleElement).length;
+        let score = 0;
+        if (/pzp(?:\s|$)|pzp-pc|chzzk_player|player_layout/i.test(text)) {
+          score += 300;
+        } else if (/player|webplayer|video|live|vod/i.test(text)) {
+          score += 80;
+        }
+        score += Math.min(buttonCount, 20) * 20;
+        if (buttonCount > 0 && score > (best?.score || 0)) {
+          best = { node, score };
+        }
+      }
+      node = node.parentElement;
+    }
+    return best?.node || video.parentElement || document;
+  }
+
+  function getVideoScore(video) {
+    const rect = video.getBoundingClientRect();
+    const style = getComputedStyle(video);
+    const visible = rect.width > 2 && rect.height > 2 && style.display !== "none" && style.visibility !== "hidden";
+    return (
+      (visible ? rect.width * rect.height : 0) +
+      (video.readyState >= HTMLMediaElement.HAVE_METADATA ? 100000 : 0) +
+      (video.currentSrc || video.src ? 10000 : 0) +
+      (!video.paused ? 5000 : 0)
+    );
+  }
+
+  function isVisibleElement(element) {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 1 && rect.height > 1 && style.display !== "none" && style.visibility !== "hidden";
+  }
+
+  function getElementText(element) {
+    return [
+      element.getAttribute?.("aria-label"),
+      element.getAttribute?.("title"),
+      element.getAttribute?.("data-testid"),
+      element.className,
+      element.textContent,
+    ].filter(Boolean).join(" ");
+  }
+
+  function getHumanText(element) {
+    return [
+      element.getAttribute?.("aria-label"),
+      element.getAttribute?.("title"),
+      element.getAttribute?.("data-testid"),
+      element.textContent,
+    ].filter(Boolean).join(" ");
+  }
+
+  function isCompactControl(element) {
+    const rect = element.getBoundingClientRect();
+    const text = cleanDebugText(getHumanText(element));
+    return rect.width > 1 && rect.height > 1 && rect.width <= 180 && rect.height <= 120 && text.length <= 220;
+  }
+
+  function isMenuOptionCandidate(element) {
+    const rect = element.getBoundingClientRect();
+    const text = cleanDebugText(getHumanText(element));
+    const rawText = String(getHumanText(element) || "").replace(/\s+/g, " ").trim();
+    return rect.width > 1 && rect.height > 1 && rect.width <= 480 && rect.height <= 110 && text.length > 0 && rawText.length <= 180;
+  }
+
+  function cleanDebugText(text) {
+    return String(text || "").replace(/\s+/g, " ").trim().slice(0, 120);
+  }
+
+  function isAutoText(text) {
+    return /(^|[\s/|])\uC790\uB3D9($|[\s/|])|(^|[\s/|])auto($|[\s/|])/i.test(String(text || ""));
+  }
+
+  function isQualityText(text) {
+    return /(?:^|[\s/|])(?:[1-9]\d{2,3}p|auto|\uC790\uB3D9)(?:$|[\s/|])/i.test(String(text || ""));
+  }
+
+  function sendEscape(root) {
+    (root || document).dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Escape",
+      code: "Escape",
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    }));
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function getPlayerState(video) {
+    return {
+      url: location.href,
+      currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
+      duration: Number.isFinite(video.duration) ? video.duration : null,
+      paused: video.paused,
+      ended: video.ended,
+      readyState: video.readyState,
+    };
+  }
+}
+
+async function runPlayerCommandInPage(payload) {
+  const video = await waitForVideo();
+  const command = payload?.command;
+
+  if (command === "play") {
+    await setPlaybackState(video, "play");
+  } else if (command === "pause") {
+    await setPlaybackState(video, "pause");
+  } else if (command === "seek") {
+    video.currentTime = clampTime(payload?.time, video.duration);
+  } else if (command === "toggle") {
+    await setPlaybackState(video, video.paused ? "play" : "pause");
+  } else if (command !== "state") {
+    throw Error("Unsupported player command.");
+  }
+
+  return getPlayerState(video);
+
+  async function waitForVideo() {
+    const existing = findVideo();
+    if (existing) {
+      return existing;
+    }
+
+    return new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      const observer = new MutationObserver(() => {
+        const video = findVideo();
+        if (video) {
+          observer.disconnect();
+          resolve(video);
+        } else if (Date.now() - startedAt > 10000) {
+          observer.disconnect();
+          reject(Error("CHZZK player video not found."));
+        }
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    });
+  }
+
+  function findVideo() {
+    const videos = [...document.querySelectorAll("video")];
+    return videos
+      .map((video) => ({ video, score: getVideoScore(video) }))
+      .sort((a, b) => b.score - a.score)[0]?.video || null;
+  }
+
+  async function setPlaybackState(video, action) {
+  const targetPaused = action === "pause";
+  if (video.paused === targetPaused && !(action === "play" && video.ended)) {
+    return;
+  }
+
+  if (action === "play") {
+    await playMediaElement(video);
+  } else {
+    pauseMediaElement(video);
+  }
+
+  if (!(await waitForPausedState(video, targetPaused))) {
+    throw Error("Player playback state did not change.");
+  }
+}
+async function playMediaElement(video) {
+    await HTMLMediaElement.prototype.play.call(video);
+  }
+
+  function pauseMediaElement(video) {
+    HTMLMediaElement.prototype.pause.call(video);
+  }
+
+  function clickPlaybackControl(video, action) {
+    const button = findPlaybackButton(video, action);
+    if (!button) {
+      return false;
+    }
+    dispatchPointerClick(button);
+    return true;
+  }
+
+  function clickVideoSurface(video) {
+    dispatchPointerClick(video);
+    return true;
+  }
+
+  function sendKeyboardToggle(video) {
+    const target = findPlayerRoot(video) || video;
+    target.focus?.({ preventScroll: true });
+    for (const eventName of ["keydown", "keyup"]) {
+      target.dispatchEvent(new KeyboardEvent(eventName, {
+        key: " ",
+        code: "Space",
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      }));
+    }
+    return true;
+  }
+
+  function dispatchPointerClick(element) {
+    element.dispatchEvent(new PointerEvent("pointerdown", pointerEventInit()));
+    element.dispatchEvent(new MouseEvent("mousedown", mouseEventInit()));
+    element.dispatchEvent(new PointerEvent("pointerup", pointerEventInit()));
+    element.dispatchEvent(new MouseEvent("mouseup", mouseEventInit()));
+    element.dispatchEvent(new MouseEvent("click", mouseEventInit()));
+  }
+
+  function pointerEventInit() {
+    return {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: Math.round(innerWidth / 2),
+      clientY: Math.round(innerHeight / 2),
+    };
+  }
+
+  function mouseEventInit() {
+    return {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      button: 0,
+      buttons: 1,
+      clientX: Math.round(innerWidth / 2),
+      clientY: Math.round(innerHeight / 2),
+    };
+  }
+
+  function findPlaybackButton(video, action) {
+    const root = findPlayerRoot(video) || document;
+    const wanted = action === "play"
+      ? [/재생/, /play/i]
+      : [/일시/, /정지/, /pause/i];
+    const fallback = [/playback/i, /play/i, /pause/i, /pzp.*play/i];
+    const controls = [...root.querySelectorAll("button, [role='button'], [aria-label], [class]")]
+      .filter((element) => element !== video && isVisibleElement(element));
+    return controls
+      .map((element) => ({ element, score: getPlaybackControlScore(element, wanted, fallback) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.element || null;
+  }
+
+  function getPlaybackControlScore(element, wanted, fallback) {
+    const text = [
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.className,
+      element.textContent,
+    ].filter(Boolean).join(" ");
+    let score = wanted.some((pattern) => pattern.test(text)) ? 100 : 0;
+    if (fallback.some((pattern) => pattern.test(text))) {
+      score += 20;
+    }
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 72 && rect.height <= 72) {
+      score += 8;
+    }
+    return score;
+  }
+
+  function findPlayerRoot(video) {
+    const videoRect = video.getBoundingClientRect();
+    let best = null;
+    let node = video.parentElement;
+    while (node && node !== document.documentElement) {
+      const text = `${node.id || ""} ${node.className || ""}`;
+      const rect = node.getBoundingClientRect();
+      const overlapsVideo = rect.left <= videoRect.left + 2 && rect.right >= videoRect.right - 2 && rect.top <= videoRect.top + 2 && rect.bottom >= videoRect.bottom - 2;
+      if (overlapsVideo) {
+        const buttonCount = [...node.querySelectorAll("button, [role='button'], [aria-label], [title], [data-testid]")].filter(isVisibleElement).length;
+        let score = 0;
+        if (/pzp(?:\s|$)|pzp-pc|chzzk_player|player_layout/i.test(text)) {
+          score += 300;
+        } else if (/player|webplayer|video|live|vod/i.test(text)) {
+          score += 80;
+        }
+        score += Math.min(buttonCount, 20) * 20;
+        if (buttonCount > 0 && score > (best?.score || 0)) {
+          best = { node, score };
+        }
+      }
+      node = node.parentElement;
+    }
+    return best?.node || video.parentElement || document;
+  }
+
+  function getVideoScore(video) {
+    const rect = video.getBoundingClientRect();
+    const style = getComputedStyle(video);
+    const visible = rect.width > 2 && rect.height > 2 && style.display !== "none" && style.visibility !== "hidden";
+    return (
+      (visible ? rect.width * rect.height : 0) +
+      (video.readyState >= HTMLMediaElement.HAVE_METADATA ? 100000 : 0) +
+      (video.currentSrc || video.src ? 10000 : 0) +
+      (!video.paused ? 5000 : 0)
+    );
+  }
+
+  function isVisibleElement(element) {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 1 && rect.height > 1 && style.display !== "none" && style.visibility !== "hidden";
+  }
+
+  function waitForPausedState(video, paused) {
+    return new Promise((resolve) => {
+      if (video.paused === paused) {
+        resolve(true);
+        return;
+      }
+      const startedAt = performance.now();
+      const tick = () => {
+        if (video.paused === paused) {
+          resolve(true);
+        } else if (performance.now() - startedAt > 900) {
+          resolve(false);
+        } else {
+          requestAnimationFrame(tick);
+        }
+      };
+      tick();
+    });
+  }
+
+  function getPlayerState(video) {
+    return {
+      url: location.href,
+      currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
+      duration: Number.isFinite(video.duration) ? video.duration : null,
+      paused: video.paused,
+      ended: video.ended,
+      readyState: video.readyState,
+      mainWorld: true,
+    };
+  }
+
+  function clampTime(time, duration) {
+    const numeric = Number(time);
+    if (!Number.isFinite(numeric)) {
+      return 0;
+    }
+    const max = Number.isFinite(duration) ? duration : Number.MAX_SAFE_INTEGER;
+    return Math.min(Math.max(0, numeric), max);
+  }
 }
 
 async function ensurePlayerBridge(tabId) {
@@ -300,17 +1618,13 @@ function installInjectedPlayerBridge() {
     const command = message.command;
 
     if (command === "play") {
-      await video.play();
+      await setPlaybackState(video, "play");
     } else if (command === "pause") {
-      video.pause();
+      await setPlaybackState(video, "pause");
     } else if (command === "seek") {
       video.currentTime = clampTime(message.time, video.duration);
     } else if (command === "toggle") {
-      if (video.paused) {
-        await video.play();
-      } else {
-        video.pause();
-      }
+      await setPlaybackState(video, video.paused ? "play" : "pause");
     } else if (command !== "state") {
       throw Error("지원하지 않는 플레이어 명령입니다.");
     }
@@ -342,7 +1656,193 @@ function installInjectedPlayerBridge() {
 
   function findVideo() {
     const videos = [...document.querySelectorAll("video")];
-    return videos.find((video) => video.readyState >= HTMLMediaElement.HAVE_METADATA) || videos[0] || null;
+    return videos
+      .map((video) => ({ video, score: getVideoScore(video) }))
+      .sort((a, b) => b.score - a.score)[0]?.video || null;
+  }
+
+  async function setPlaybackState(video, action) {
+  const targetPaused = action === "pause";
+  if (video.paused === targetPaused && !(action === "play" && video.ended)) {
+    return;
+  }
+
+  if (action === "play") {
+    await playMediaElement(video);
+  } else {
+    pauseMediaElement(video);
+  }
+
+  if (!(await waitForPausedState(video, targetPaused))) {
+    throw Error("Player playback state did not change.");
+  }
+}
+async function playMediaElement(video) {
+    await HTMLMediaElement.prototype.play.call(video);
+  }
+
+  function pauseMediaElement(video) {
+    HTMLMediaElement.prototype.pause.call(video);
+  }
+
+  function clickPlaybackControl(video, action) {
+    const button = findPlaybackButton(video, action);
+    if (!button) {
+      return false;
+    }
+    dispatchPointerClick(button);
+    return true;
+  }
+
+  function clickVideoSurface(video) {
+    dispatchPointerClick(video);
+    return true;
+  }
+
+  function sendKeyboardToggle(video) {
+    const target = findPlayerRoot(video) || video;
+    target.focus?.({ preventScroll: true });
+    for (const eventName of ["keydown", "keyup"]) {
+      target.dispatchEvent(new KeyboardEvent(eventName, {
+        key: " ",
+        code: "Space",
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      }));
+    }
+    return true;
+  }
+
+  function dispatchPointerClick(element) {
+    element.dispatchEvent(new PointerEvent("pointerdown", pointerEventInit()));
+    element.dispatchEvent(new MouseEvent("mousedown", mouseEventInit()));
+    element.dispatchEvent(new PointerEvent("pointerup", pointerEventInit()));
+    element.dispatchEvent(new MouseEvent("mouseup", mouseEventInit()));
+    element.dispatchEvent(new MouseEvent("click", mouseEventInit()));
+  }
+
+  function pointerEventInit() {
+    return {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: Math.round(innerWidth / 2),
+      clientY: Math.round(innerHeight / 2),
+    };
+  }
+
+  function mouseEventInit() {
+    return {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      button: 0,
+      buttons: 1,
+      clientX: Math.round(innerWidth / 2),
+      clientY: Math.round(innerHeight / 2),
+    };
+  }
+
+  function findPlaybackButton(video, action) {
+    const root = findPlayerRoot(video) || document;
+    const wanted = action === "play"
+      ? [/재생/, /play/i]
+      : [/일시/, /정지/, /pause/i];
+    const fallback = [/playback/i, /play/i, /pause/i, /pzp.*play/i];
+    const controls = [...root.querySelectorAll("button, [role='button'], [aria-label], [class]")]
+      .filter((element) => element !== video && isVisibleElement(element));
+    return controls
+      .map((element) => ({ element, score: getPlaybackControlScore(element, wanted, fallback) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)[0]?.element || null;
+  }
+
+  function getPlaybackControlScore(element, wanted, fallback) {
+    const text = [
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.className,
+      element.textContent,
+    ].filter(Boolean).join(" ");
+    let score = wanted.some((pattern) => pattern.test(text)) ? 100 : 0;
+    if (fallback.some((pattern) => pattern.test(text))) {
+      score += 20;
+    }
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 64 && rect.height <= 64) {
+      score += 8;
+    }
+    return score;
+  }
+
+  function findPlayerRoot(video) {
+    const videoRect = video.getBoundingClientRect();
+    let best = null;
+    let node = video.parentElement;
+    while (node && node !== document.documentElement) {
+      const text = `${node.id || ""} ${node.className || ""}`;
+      const rect = node.getBoundingClientRect();
+      const overlapsVideo = rect.left <= videoRect.left + 2 && rect.right >= videoRect.right - 2 && rect.top <= videoRect.top + 2 && rect.bottom >= videoRect.bottom - 2;
+      if (overlapsVideo) {
+        const buttonCount = [...node.querySelectorAll("button, [role='button'], [aria-label], [title], [data-testid]")].filter(isVisibleElement).length;
+        let score = 0;
+        if (/pzp(?:\s|$)|pzp-pc|chzzk_player|player_layout/i.test(text)) {
+          score += 300;
+        } else if (/player|webplayer|video/i.test(text)) {
+          score += 80;
+        }
+        score += Math.min(buttonCount, 20) * 20;
+        if (buttonCount > 0 && score > (best?.score || 0)) {
+          best = { node, score };
+        }
+      }
+      node = node.parentElement;
+    }
+    return best?.node || video.parentElement || document;
+  }
+
+  function getVideoScore(video) {
+    const rect = video.getBoundingClientRect();
+    const style = getComputedStyle(video);
+    const visible = rect.width > 2 && rect.height > 2 && style.display !== "none" && style.visibility !== "hidden";
+    return (
+      (visible ? rect.width * rect.height : 0) +
+      (video.readyState >= HTMLMediaElement.HAVE_METADATA ? 100000 : 0) +
+      (video.currentSrc || video.src ? 10000 : 0) +
+      (!video.paused ? 5000 : 0)
+    );
+  }
+
+  function isVisibleElement(element) {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 1 && rect.height > 1 && style.display !== "none" && style.visibility !== "hidden";
+  }
+
+  function waitForPausedState(video, paused) {
+    return new Promise((resolve) => {
+      if (video.paused === paused) {
+        resolve(true);
+        return;
+      }
+      const startedAt = performance.now();
+      const tick = () => {
+        if (video.paused === paused) {
+          resolve(true);
+        } else if (performance.now() - startedAt > 700) {
+          resolve(false);
+        } else {
+          requestAnimationFrame(tick);
+        }
+      };
+      tick();
+    });
   }
 
   function getPlayerState(video) {
@@ -366,10 +1866,18 @@ function installInjectedPlayerBridge() {
   }
 
   function notifyReady() {
-    chrome.runtime.sendMessage({
+    safeRuntimeSendMessage({
       type: "CHZZK_PAGE_READY",
       payload: { url: location.href },
-    }).catch(() => {});
+    });
+  }
+
+  function safeRuntimeSendMessage(message) {
+    try {
+      chrome.runtime?.sendMessage?.(message)?.catch?.(() => {});
+    } catch {
+      // The injected bridge can outlive the extension context after reload.
+    }
   }
 }
 
@@ -693,4 +2201,112 @@ function waitForDownload(downloadId) {
       })
       .catch((error) => finish(reject, error));
   });
+}
+
+function waitForDownloadItem(downloadId) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+    const resolveDownload = () => {
+      chrome.downloads.search({ id: downloadId })
+        .then(([download]) => finish(resolve, download || { id: downloadId }))
+        .catch(() => finish(resolve, { id: downloadId }));
+    };
+    const onChanged = (delta) => {
+      if (delta.id !== downloadId) {
+        return;
+      }
+      if (delta.error?.current) {
+        finish(reject, Error(`브라우저 저장 실패: ${delta.error.current}`));
+        return;
+      }
+      if (delta.state?.current === "complete") {
+        resolveDownload();
+        return;
+      }
+      if (delta.state?.current === "interrupted") {
+        finish(reject, Error("브라우저 저장이 중단되었습니다."));
+      }
+    };
+    const cleanup = () => chrome.downloads.onChanged.removeListener(onChanged);
+
+    chrome.downloads.onChanged.addListener(onChanged);
+    chrome.downloads.search({ id: downloadId })
+      .then(([download]) => {
+        if (download?.state === "complete") {
+          finish(resolve, download);
+        } else if (download?.state === "interrupted") {
+          finish(reject, Error("브라우저 저장이 중단되었습니다."));
+        }
+      })
+      .catch((error) => finish(reject, error));
+  });
+}
+
+async function cleanupTmpDownloadsNear(download, startedAfter) {
+  const finalPath = String(download?.filename || "");
+  const finalDirectory = finalPath ? normalizeDirectoryName(finalPath) : "";
+  const startedAfterMs = Date.parse(startedAfter) || Date.now() - 60000;
+  const endedBeforeMs = Date.now() + 15000;
+  const candidates = await chrome.downloads.search({
+    filenameRegex: "[\\\\/][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.tmp$",
+    startedAfter,
+  }).catch(() => []);
+  let removed = 0;
+
+  for (const item of candidates) {
+    if (!isTmpDownloadCleanupCandidate(item, finalDirectory, startedAfterMs, endedBeforeMs)) {
+      continue;
+    }
+    try {
+      await chrome.downloads.removeFile(item.id);
+      await chrome.downloads.erase({ id: item.id }).catch(() => {});
+      removed += 1;
+    } catch (error) {
+      await emitDebugLog("background", "saveFile.tmpCleanup.error", {
+        id: item.id,
+        filename: item.filename,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (removed || candidates.length) {
+    await emitDebugLog("background", "saveFile.tmpCleanup.done", {
+      removed,
+      candidates: candidates.length,
+      directory: finalDirectory ? "[download-dir]" : "",
+    });
+  }
+}
+
+function isTmpDownloadCleanupCandidate(item, finalDirectory, startedAfterMs, endedBeforeMs) {
+  const filename = String(item?.filename || "");
+  const basename = filename.split(/[\\/]/).pop() || "";
+  if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.tmp$/.test(basename)) {
+    return false;
+  }
+  if (finalDirectory && normalizeDirectoryName(filename) !== finalDirectory) {
+    return false;
+  }
+  const startedAt = Date.parse(item.startTime || "");
+  if (Number.isFinite(startedAt) && (startedAt < startedAfterMs || startedAt > endedBeforeMs)) {
+    return false;
+  }
+  const endedAt = Date.parse(item.endTime || "");
+  if (Number.isFinite(endedAt) && endedAt > endedBeforeMs) {
+    return false;
+  }
+  return true;
+}
+
+function normalizeDirectoryName(filename) {
+  return String(filename || "").replace(/[\\/][^\\/]*$/, "").toLowerCase();
 }

@@ -898,7 +898,7 @@ h2 {
 }
 
 .queue-head {
-  display: grid;
+  display: none;
   gap: 14px;
   flex: 0 0 auto;
 }
@@ -914,6 +914,10 @@ h2 {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.queue-section > .empty-queue {
+  display: none !important;
 }
 
 .job-list {
@@ -1062,8 +1066,7 @@ h2 {
 .editor-items-section {
   flex: 0 0 auto;
   margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 0;
 }
 
 .editor-items-section.unified-items-section {
@@ -1081,8 +1084,10 @@ h2 {
   gap: 10px;
   max-height: none;
   overflow: visible;
-  margin-top: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
   padding-right: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .selected-editor-controls {
@@ -1131,10 +1136,10 @@ h2 {
 .selected-editor-controls .range-editor {
   display: grid;
   grid-column: 1 / -1;
-  grid-row: 4;
+  grid-row: 3;
   position: relative;
   z-index: 3;
-  grid-template-columns: 96px minmax(0, 1fr) 54px;
+  grid-template-columns: 78px minmax(0, 1fr) 54px;
   align-items: center;
   gap: 0;
   margin-top: 0;
@@ -1161,7 +1166,7 @@ h2 {
   justify-content: center;
   height: 34px;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 6px;
 }
 
 .selected-editor-controls .range-head span {
@@ -1209,12 +1214,23 @@ h2 {
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   align-items: stretch;
+  max-width: 100%;
+  min-width: 0;
   min-height: 0;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(9, 13, 15, 0.46);
   overflow: visible;
+}
+
+.queue-section,
+.editor-items-section,
+.editor-item-row,
+.selected-editor-controls .range-editor,
+.selected-editor-controls .range-track {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .editor-item:hover,
@@ -1229,6 +1245,7 @@ h2 {
 
 .editor-item-row {
   display: grid;
+  position: relative;
   grid-template-columns: 96px minmax(0, 1fr) 68px 36px 36px;
   grid-template-rows: 30px auto;
   gap: 5px 8px;
@@ -1257,7 +1274,7 @@ h2 {
 
 .editor-item.selected .editor-item-row {
   grid-template-columns: 96px minmax(0, 1fr) 36px 36px 36px 68px 36px 36px;
-  grid-template-rows: 30px minmax(20px, 1fr) auto 34px;
+  grid-template-rows: 30px minmax(20px, auto) 34px;
   row-gap: 5px;
 }
 
@@ -1296,6 +1313,57 @@ h2 {
 
 .editor-item-actions .editor-item-quality {
   width: 68px;
+}
+
+.editor-item-download-status {
+  display: none;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  color: var(--soft);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.15;
+  text-align: right;
+}
+
+.editor-item-download-status span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-item-actions .editor-item-cancel {
+  display: none;
+  width: 48px;
+  border-color: rgba(255, 91, 103, 0.3);
+  color: var(--red);
+}
+
+.editor-item.downloading .editor-item-row {
+  grid-template-columns: 96px minmax(0, 1fr) minmax(106px, 136px) 48px;
+}
+
+.editor-item.downloading .editor-item-actions {
+  grid-column: 3 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px;
+}
+
+.editor-item.downloading .editor-item-meta,
+.editor-item.downloading .editor-item-quality,
+.editor-item.downloading .editor-item-download,
+.editor-item.downloading .editor-item-delete {
+  display: none;
+}
+
+.editor-item.downloading .editor-item-download-status {
+  display: flex;
+}
+
+.editor-item.downloading .editor-item-cancel {
+  display: grid;
 }
 
 .editor-item-quality {
@@ -1397,6 +1465,77 @@ h2 {
   object-fit: contain;
 }
 
+.editor-thumb-progress {
+  display: none;
+  position: relative;
+  z-index: 3;
+  grid-column: 1;
+  grid-row: 1 / 3;
+  place-items: center;
+  overflow: hidden;
+  width: 96px;
+  height: 56px;
+  border-radius: 6px;
+  background: rgba(2, 8, 8, 0.45);
+  pointer-events: none;
+}
+
+.editor-item.has-progress .editor-thumb-progress {
+  display: grid;
+}
+
+.editor-thumb-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--editor-thumb-progress, 0%);
+  background: linear-gradient(90deg, rgba(0, 255, 163, 0.72), rgba(98, 217, 255, 0.72));
+  transition: width 180ms ease;
+}
+
+.editor-thumb-progress-text {
+  position: relative;
+  color: #f7ffff;
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1;
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.8);
+}
+
+.editor-thumb-done {
+  display: none;
+  position: relative;
+  z-index: 4;
+  grid-column: 1;
+  grid-row: 1 / 3;
+  justify-self: end;
+  align-self: start;
+  width: 14px;
+  height: 14px;
+  margin: 4px;
+  border: 1px solid rgba(0, 255, 163, 0.28);
+  border-radius: 999px;
+  background: rgba(2, 8, 8, 0.72);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.editor-item.downloaded .editor-thumb-done {
+  display: block;
+}
+
+.editor-thumb-done::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 7px;
+  border: solid var(--green);
+  border-width: 0 2.7px 2.7px 0;
+  transform: translate(-50%, -58%) rotate(45deg);
+  transform-origin: center;
+}
+
 .editor-item-body {
   display: contents;
   min-width: 0;
@@ -1424,7 +1563,7 @@ h2 {
   gap: 6px;
   margin-top: 0;
   margin-bottom: 0;
-  overflow: hidden;
+  overflow: visible;
   color: var(--muted);
   font-size: 11px;
   font-weight: 800;
@@ -1432,8 +1571,9 @@ h2 {
 }
 
 .editor-item.selected .editor-item-title {
-  grid-column: 1 / -1;
-  grid-row: 3;
+  grid-column: 2 / -1;
+  grid-row: 2;
+  align-self: center;
 }
 
 .editor-item-meta span {
@@ -1441,7 +1581,23 @@ h2 {
 }
 
 .editor-item-kind {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 2;
+  max-width: 88px;
+  overflow: hidden;
+  padding: 2px 6px 3px;
+  border: 1px solid rgba(0, 255, 163, 0.28);
+  border-radius: 5px;
+  background: rgba(2, 8, 8, 0.72);
   color: var(--green);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .editor-item.selected .editor-item-duration {
@@ -1503,6 +1659,7 @@ h2 {
 }
 
 .empty-editor-list {
+  display: none !important;
   margin-top: 8px;
   color: var(--muted);
   font-size: 12px;

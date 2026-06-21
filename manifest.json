@@ -29,6 +29,15 @@
         "https://chzzk.naver.com/video/*",
         "https://chzzk.naver.com/clips/*"
       ],
+      "js": ["src/content/qualityTargetTracker.ts"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://chzzk.naver.com/video/*",
+        "https://chzzk.naver.com/clips/*"
+      ],
       "js": ["src/content/chzzkPlayerBridge.ts"],
       "run_at": "document_idle"
     }

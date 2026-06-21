@@ -18,6 +18,7 @@ const sourceTabsByUrl = new Map();
 const sourceTabsById = new Map();
 const pendingEditorUrls = new Set();
 const suppressedEditorUrls = new Set();
+const qualityAutoAttemptKeys = new Set();
 
 init().catch(showRemoteError);
 
@@ -58,7 +59,7 @@ window.addEventListener("chzzk-saver:selected-editor-item", () => {
   refreshSelectedControls();
 });
 
-remotePlayButton.addEventListener("click", () => sendPlayerCommand("toggle").catch(showRemoteError));
+remotePlayButton.addEventListener("click", () => toggleRemotePlayback().catch(showRemoteError));
 remoteMarkStartButton.addEventListener("click", () => markCurrentTime("start").catch(showRemoteError));
 remoteMarkEndButton.addEventListener("click", () => markCurrentTime("end").catch(showRemoteError));
 
@@ -173,8 +174,27 @@ async function focusOrOpenSelectedSourceTab() {
     registerSourceTab(source, { addToEditor: false });
     updateSelectedCardSource(source);
     await addSourceToEditor(source);
+    await ensureSourceQualityAuto(source);
   }
   return source;
+}
+
+async function ensureSourceQualityAuto(source) {
+  if (!source?.tabId) {
+    return;
+  }
+  const key = `${source.tabId}:${normalizeUrl(source.url || "")}`;
+  if (qualityAutoAttemptKeys.has(key)) {
+    return;
+  }
+  qualityAutoAttemptKeys.add(key);
+  const response = await chrome.runtime.sendMessage({
+    type: "CHZZK_PLAYER_COMMAND",
+    payload: { tabId: source.tabId, command: "qualityAuto" },
+  }).catch((error) => ({ ok: false, message: error instanceof Error ? error.message : String(error) }));
+  if (response?.ok === false) {
+    qualityAutoAttemptKeys.delete(key);
+  }
 }
 
 async function openSelectedUrlInBrowserTab() {
@@ -216,6 +236,12 @@ async function sendPlayerCommand(command, payload = {}) {
   }
   updateRemoteState(response?.state);
   return response?.state;
+}
+
+async function toggleRemotePlayback() {
+  const state = await sendPlayerCommand("state");
+  const command = state?.paused ? "play" : "pause";
+  await sendPlayerCommand(command);
 }
 
 async function markCurrentTime(target) {
