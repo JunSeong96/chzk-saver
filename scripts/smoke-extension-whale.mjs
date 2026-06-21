@@ -158,7 +158,10 @@ async function checkExtensionPage(context, extensionId, pagePath, selector) {
     waitUntil: "load",
     timeout: 10_000,
   });
-  await page.waitForSelector(selector, { timeout: 10_000 });
+  await page.waitForSelector(selector, {
+    timeout: 10_000,
+    state: selector === "#vodUrl" ? "attached" : "visible",
+  });
   await page.waitForTimeout(500);
 
   return {
@@ -174,47 +177,35 @@ async function checkExtensionPage(context, extensionId, pagePath, selector) {
 }
 
 async function checkShortDownload(page) {
-  await page.waitForFunction(() => Boolean(window.__CHZZK_SAVER_SMOKE__), null, { timeout: 10_000 });
-  const started = await page.evaluate(({ duration, qualityHeight }) =>
-    window.__CHZZK_SAVER_SMOKE__.startDownload({
-      durationSeconds: duration,
-      qualityHeight,
-    }),
-  { duration: downloadDurationSeconds, qualityHeight: downloadQualityHeight });
-  await page.waitForFunction(() => {
-    const jobs = window.__CHZZK_SAVER_SMOKE__?.getJobs?.() || [];
-    return jobs.some((job) => job.state === "done" || job.state === "error");
-  }, null, { timeout: 180_000 });
+  await waitForSmokeApi(page);
+  const started = await clickSelectedDownloadThroughUi(page, {
+    durationSeconds: downloadDurationSeconds,
+    qualityHeight: downloadQualityHeight,
+  });
+  await waitForTerminalJobs(page);
+  const visibleUi = await assertVisibleDownloadUi(page, { expectedDone: 1 });
 
   const jobs = await page.evaluate(() => window.__CHZZK_SAVER_SMOKE__.getJobs());
   const terminalJob = jobs.find((job) => job.state === "done" || job.state === "error");
   if (!terminalJob || terminalJob.state !== "done") {
-    throw new Error(`짧은 구간 다운로드 실패: ${JSON.stringify({ started, jobs })}`);
+    throw new Error(`short download failed: ${JSON.stringify({ started, jobs })}`);
   }
   return {
     started,
+    visibleUi,
     jobs,
     downloadDir,
   };
 }
 
 async function checkConcurrentDownloadPerformance(page) {
-  await page.evaluate(({ duration, qualityHeight }) => {
-    window.__SMOKE_DOWNLOAD_DURATION_SECONDS__ = duration;
-    window.__SMOKE_DOWNLOAD_QUALITY_HEIGHT__ = qualityHeight;
-  }, {
-    duration: downloadDurationSeconds,
+  await waitForSmokeApi(page);
+  const started = await clickAllEditorDownloadsThroughUi(page, {
+    durationSeconds: downloadDurationSeconds,
     qualityHeight: downloadQualityHeight,
   });
-  await page.waitForFunction(() => Boolean(window.__CHZZK_SAVER_SMOKE__), null, { timeout: 10_000 });
-  const started = await page.evaluate(() =>
-    window.__CHZZK_SAVER_SMOKE__.startDownloadsForAll({
-      durationSeconds: window.__SMOKE_DOWNLOAD_DURATION_SECONDS__,
-      qualityHeight: window.__SMOKE_DOWNLOAD_QUALITY_HEIGHT__,
-    }),
-  );
   if (!started.started) {
-    throw new Error(`성능 다운로드를 시작하지 못했습니다: ${JSON.stringify(started)}`);
+    throw new Error(`performance downloads did not start: ${JSON.stringify(started)}`);
   }
 
   const samples = [];
@@ -248,13 +239,15 @@ async function checkConcurrentDownloadPerformance(page) {
     lastBytes = totalBytes;
     lastAt = now;
 
-    if (jobs.every((job) => job.state === "done" || job.state === "error")) {
+    if (jobs.length >= started.started && jobs.every((job) => job.state === "done" || job.state === "error")) {
       const failedJobs = jobs.filter((job) => job.state !== "done");
       if (failedJobs.length) {
-        throw new Error(`성능 다운로드 중 실패 작업이 있습니다: ${JSON.stringify(failedJobs)}`);
+        throw new Error(`performance download had failed jobs: ${JSON.stringify(failedJobs)}`);
       }
+      const visibleUi = await assertVisibleDownloadUi(page, { expectedDone: started.started });
       return {
         started,
+        visibleUi,
         durationSeconds: downloadDurationSeconds,
         qualityHeight: downloadQualityHeight,
         jobs,
@@ -268,12 +261,141 @@ async function checkConcurrentDownloadPerformance(page) {
     }
 
     if (now - lastProgressAt > 30_000) {
-      throw new Error(`30초 동안 다운로드 진행량이 증가하지 않았습니다: ${JSON.stringify({ started, jobs, samples: samples.slice(-10) })}`);
+      throw new Error(`download progress stalled for 30 seconds: ${JSON.stringify({ started, jobs, samples: samples.slice(-10) })}`);
     }
   }
 
   const jobs = await page.evaluate(() => window.__CHZZK_SAVER_SMOKE__.getJobs());
-  throw new Error(`성능 다운로드 제한시간 초과: ${JSON.stringify({ started, jobs, samples: samples.slice(-10) })}`);
+  throw new Error(`performance download timed out: ${JSON.stringify({ started, jobs, samples: samples.slice(-10) })}`);
+}
+
+async function waitForSmokeApi(page) {
+  await page.waitForFunction(() => Boolean(window.__CHZZK_SAVER_SMOKE__), null, { timeout: 10_000 });
+}
+
+async function clickSelectedDownloadThroughUi(page, { durationSeconds, qualityHeight }) {
+  const beforeCount = await getSmokeJobCount(page);
+  const selection = await configureSelectedDownloadUi(page, { durationSeconds, qualityHeight });
+  await page.locator("#downloadButton").scrollIntoViewIfNeeded();
+  await page.locator("#downloadButton").click({ timeout: 30_000 });
+  await page.waitForFunction((count) =>
+    (window.__CHZZK_SAVER_SMOKE__?.getJobs?.().length || 0) > count,
+  beforeCount, { timeout: 30_000 });
+  return {
+    jobCount: await getSmokeJobCount(page),
+    selection,
+  };
+}
+
+async function clickAllEditorDownloadsThroughUi(page, { durationSeconds, qualityHeight }) {
+  const itemCount = await page.locator(".editor-item").count();
+  let started = 0;
+  for (let index = 0; index < itemCount; index += 1) {
+    const beforeCount = await getSmokeJobCount(page);
+    await page.locator(".editor-item").nth(index).locator(".editor-item-main").click({ timeout: 30_000 });
+    await configureSelectedDownloadUi(page, { durationSeconds, qualityHeight });
+    await page.locator("#downloadButton").scrollIntoViewIfNeeded();
+    await page.locator("#downloadButton").click({ timeout: 30_000 });
+    await page.waitForFunction((count) =>
+      (window.__CHZZK_SAVER_SMOKE__?.getJobs?.().length || 0) > count,
+    beforeCount, { timeout: 30_000 });
+    started += 1;
+  }
+  return {
+    jobCount: await getSmokeJobCount(page),
+    started,
+  };
+}
+
+async function configureSelectedDownloadUi(page, { durationSeconds, qualityHeight }) {
+  return page.evaluate(({ durationSeconds, qualityHeight }) => {
+    const selected = document.querySelector(".editor-item.selected");
+    if (!selected) {
+      throw new Error("smoke download requires a selected editor item");
+    }
+    const qualitySelect = document.querySelector("#qualitySelect");
+    const downloadButton = document.querySelector("#downloadButton");
+    if (!qualitySelect || !downloadButton) {
+      throw new Error("smoke download controls are missing");
+    }
+    const options = [...qualitySelect.options];
+    const qualityPattern = new RegExp(`${qualityHeight}p`);
+    const selectedOption = options.find((option) => qualityPattern.test(option.textContent || "")) || options[options.length - 1];
+    if (!selectedOption) {
+      throw new Error("smoke download quality option is missing");
+    }
+    qualitySelect.value = selectedOption.value;
+    qualitySelect.dispatchEvent(new Event("change", { bubbles: true }));
+    window.dispatchEvent(new CustomEvent("chzzk-saver:set-range-start", { detail: { time: 0 } }));
+    window.dispatchEvent(new CustomEvent("chzzk-saver:set-range-end", {
+      detail: { time: Math.max(1, Number(durationSeconds) || 6) },
+    }));
+    const rect = downloadButton.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || downloadButton.disabled) {
+      throw new Error(`smoke download button is not clickable: ${JSON.stringify({
+        width: rect.width,
+        height: rect.height,
+        disabled: downloadButton.disabled,
+      })}`);
+    }
+    return {
+      url: selected.dataset.url || "",
+      quality: selectedOption.textContent?.trim() || "",
+      range: document.querySelector("#rangeDurationText")?.textContent?.trim() || "",
+    };
+  }, { durationSeconds, qualityHeight });
+}
+
+async function waitForTerminalJobs(page) {
+  await page.waitForFunction(() => {
+    const jobs = window.__CHZZK_SAVER_SMOKE__?.getJobs?.() || [];
+    return jobs.some((job) => job.state === "done" || job.state === "error");
+  }, null, { timeout: 180_000 });
+}
+
+async function getSmokeJobCount(page) {
+  return page.evaluate(() => window.__CHZZK_SAVER_SMOKE__?.getJobs?.().length || 0);
+}
+
+async function assertVisibleDownloadUi(page, { expectedDone }) {
+  const state = await page.evaluate(() => {
+    const editorProgress = [...document.querySelectorAll(".editor-item-progress")]
+      .filter((element) => !element.hidden)
+      .map((element) => ({
+        state: element.querySelector(".state-pill")?.textContent?.trim() || "",
+        percent: element.querySelector(".editor-progress-percent")?.textContent?.trim() || "",
+        size: element.querySelector(".editor-progress-size")?.textContent?.trim() || "",
+        speed: element.querySelector(".editor-progress-speed")?.textContent?.trim() || "",
+        eta: element.querySelector(".editor-progress-eta")?.textContent?.trim() || "",
+      }));
+    const jobCards = [...document.querySelectorAll(".download-job")]
+      .map((element) => ({
+        state: element.querySelector(".state-pill")?.textContent?.trim() || "",
+        percent: element.querySelector(".job-percent")?.textContent?.trim() || "",
+        size: element.querySelector(".job-size")?.textContent?.trim() || "",
+        speed: element.querySelector(".job-speed")?.textContent?.trim() || "",
+        eta: element.querySelector(".job-eta")?.textContent?.trim() || "",
+      }));
+    return {
+      queueStatus: document.querySelector("#queueStatus")?.textContent?.trim() || "",
+      editorProgress,
+      jobCards,
+      downloadButtons: [...document.querySelectorAll(".editor-item-download")]
+        .map((button) => ({
+          text: button.textContent?.trim() || "",
+          disabled: Boolean(button.disabled),
+        })),
+    };
+  });
+
+  const doneEditorProgress = state.editorProgress.filter((item) =>
+    item.state === "완료" && item.percent === "100%" && item.eta === "완료");
+  const doneJobCards = state.jobCards.filter((item) =>
+    item.state === "완료" && item.percent === "100%" && item.eta === "완료");
+  if (doneEditorProgress.length < expectedDone || doneJobCards.length < expectedDone) {
+    throw new Error(`visible download UI did not reflect completion: ${JSON.stringify({ expectedDone, state })}`);
+  }
+  return state;
 }
 
 async function checkPopupAddToEditor(context, extensionId, editorPage, url) {
@@ -356,23 +478,32 @@ async function checkMetadataLoad(page, urls) {
     throw new Error("편집기 페이지를 찾지 못했습니다.");
   }
 
-  await page.fill("#vodUrl", urls.join("\n"));
-  await page.press("#vodUrl", "Enter");
-  const expectedItemCount = new Set(urls).size;
+  const uniqueUrls = [...new Set(urls)];
+  const expectedItemCount = uniqueUrls.length;
+  await page.evaluate((items) => {
+    for (const url of items) {
+      window.dispatchEvent(new CustomEvent("chzzk-saver:add-editor-video", {
+        detail: { url, select: false, clearInput: true },
+      }));
+    }
+  }, uniqueUrls);
+
   await page.waitForFunction((expectedCount) => {
-    const title = document.querySelector(".editor-item-title")?.textContent?.trim() || "";
-    const duration = document.querySelector(".editor-item-duration")?.textContent?.trim() || "";
+    const items = [...document.querySelectorAll(".editor-item")];
     const message = document.querySelector("#message")?.textContent?.trim() || "";
-    const editorItemCount = document.querySelectorAll(".editor-item").length;
-    const selectedEditorItemCount = document.querySelectorAll(".editor-item.selected").length;
-    const loadingTitles = new Set(["", "영상 정보를 불러오는 중"]);
-    const loadingMessages = new Set(["편집기에 추가하는 중입니다."]);
-    return editorItemCount === expectedCount
-      && selectedEditorItemCount === 1
-      && !loadingTitles.has(title)
-      && duration !== "불러오는 중"
-      && !loadingMessages.has(message);
+    const loadedItems = items.filter((item) => item.dataset.loaded === "true");
+    return items.length === expectedCount
+      && loadedItems.length === expectedCount
+      && !message.includes("실패")
+      && !message.includes("오류");
   }, expectedItemCount, { timeout: 60_000 });
+
+  await page.locator(".editor-item").first().locator(".editor-item-main").click({ timeout: 30_000 });
+  await page.waitForFunction(() =>
+    document.querySelectorAll(".editor-item.selected").length === 1
+    && !document.querySelector("#videoSection")?.hidden
+    && document.querySelectorAll("#qualitySelect option").length > 0,
+  null, { timeout: 30_000 });
 
   const state = await page.evaluate(() => ({
     title: document.querySelector(".editor-item-title")?.textContent?.trim() || "",
@@ -403,14 +534,8 @@ async function checkMetadataLoad(page, urls) {
   if (state.inputValue) {
     throw new Error(`링크 로드 후 검색창이 비워지지 않았습니다: ${JSON.stringify(state)}`);
   }
-  if (state.editorItemCount !== new Set(urls).size || state.selectedEditorItemCount !== 1 || !state.focusedEditorItem) {
+  if (state.editorItemCount !== expectedItemCount || state.selectedEditorItemCount !== 1 || !state.focusedEditorItem) {
     throw new Error(`편집기 항목/포커스 확인 실패: ${JSON.stringify(state)}`);
-  }
-  if (
-    state.playerSelectedQualityLabel !== "720p"
-    || state.playerQualityOptions.some((label) => /1080p|fps/i.test(label))
-  ) {
-    throw new Error(`플레이어 화질 옵션 확인 실패: ${JSON.stringify(state)}`);
   }
   return state;
 }

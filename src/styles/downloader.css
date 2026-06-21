@@ -169,7 +169,7 @@ p {
 
 .options-menu fieldset {
   display: grid;
-  gap: 8px;
+  gap: 7px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -182,19 +182,66 @@ p {
   font-weight: 900;
 }
 
-.options-menu label {
+.option-switch {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
   color: var(--soft);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
+  cursor: pointer;
 }
 
-.options-menu input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--green);
+.option-switch span {
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.option-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.option-switch i {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 20px;
+  border: 1px solid rgba(166, 240, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(20, 30, 34, 0.95);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.option-switch i::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--muted);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.34);
+  content: "";
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.option-switch input:checked + i {
+  border-color: rgba(0, 255, 163, 0.42);
+  background: rgba(0, 255, 163, 0.16);
+}
+
+.option-switch input:checked + i::after {
+  background: var(--green);
+  transform: translateX(18px);
+}
+
+.option-switch input:focus-visible + i {
+  outline: 2px solid rgba(98, 217, 255, 0.85);
+  outline-offset: 2px;
 }
 
 .auto-source-panel strong,
@@ -436,46 +483,57 @@ h2 {
 
 .remote-panel {
   margin-top: 0;
-  border: 1px solid rgba(0, 255, 170, 0.35);
+  border: 1px solid rgba(0, 255, 170, 0.24);
   border-radius: 8px;
-  background: rgba(0, 255, 170, 0.06);
-  padding: 16px;
+  background: rgba(8, 13, 15, 0.72);
+  padding: 8px;
 }
 
 .remote-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.remote-panel-head span {
-  display: block;
-  color: #a8c7c7;
-  font-size: 13px;
-  margin-bottom: 4px;
+  gap: 8px;
+  min-height: 22px;
+  margin-bottom: 7px;
 }
 
 .remote-panel-head strong {
-  color: var(--white);
-  font-size: 18px;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .remote-actions {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(4, 36px);
+  gap: 7px;
+  align-items: center;
+  justify-content: start;
 }
 
 .remote-panel button {
-  min-height: 42px;
-  border: 1px solid rgba(166, 240, 255, 0.18);
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid rgba(166, 240, 255, 0.16);
   border-radius: 8px;
   background: rgba(18, 30, 34, 0.88);
-  color: var(--white);
+  color: var(--text);
+  font-family: "Segoe UI Symbol", "Apple Color Emoji", Inter, system-ui, sans-serif;
+  font-size: 15px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.remote-panel button span {
+  transform: translateY(-1px);
 }
 
 .remote-panel button:hover:not(:disabled),
@@ -490,9 +548,12 @@ h2 {
 }
 
 .remote-time {
-  margin: 10px 0 0;
+  flex: 0 0 auto;
+  margin: 0;
   color: #b7d7d7;
+  font-size: 11px;
   font-weight: 800;
+  line-height: 1.2;
 }
 
 .download-controls {
@@ -511,8 +572,8 @@ h2 {
 
 .range-editor {
   grid-column: 1;
-  margin-top: 18px;
-  padding: 14px;
+  margin-top: 10px;
+  padding: 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   background: rgba(9, 13, 15, 0.46);
@@ -522,7 +583,7 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
 }
 
 .range-head span,
@@ -533,22 +594,22 @@ h2 {
 
 .range-head strong {
   display: block;
-  margin-top: 3px;
+  margin-top: 1px;
   color: var(--text);
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1.25;
 }
 
 .range-reset-button {
-  min-height: 32px;
-  padding: 0 10px;
-  font-size: 12px;
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 11px;
 }
 
 .range-track {
   position: relative;
-  height: 34px;
-  margin-top: 14px;
+  height: 26px;
+  margin-top: 9px;
   padding: 0 10px;
   border-radius: 8px;
   background:
@@ -563,7 +624,7 @@ h2 {
   right: 10px;
   left: 10px;
   top: 50%;
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
   content: "";
@@ -628,8 +689,8 @@ h2 {
 
 .range-selection {
   position: absolute;
-  top: 13px;
-  bottom: 13px;
+  top: 10px;
+  bottom: 10px;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--green), var(--cyan));
   box-shadow: 0 0 16px rgba(0, 255, 163, 0.16);
@@ -638,8 +699,8 @@ h2 {
 .range-handle {
   position: absolute;
   top: 50%;
-  width: 16px;
-  height: 24px;
+  width: 14px;
+  height: 22px;
   box-sizing: border-box;
   min-height: 0;
   padding: 0;
@@ -684,7 +745,7 @@ h2 {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 8px;
+  margin-top: 5px;
   font-weight: 800;
 }
 
@@ -889,9 +950,9 @@ h2 {
 
 .selected-editor-controls {
   display: grid;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 12px;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
   border: 1px solid rgba(0, 255, 163, 0.24);
   border-radius: 8px;
   background: rgba(0, 255, 163, 0.045);
@@ -900,6 +961,7 @@ h2 {
 .selected-editor-controls .range-editor {
   border-color: rgba(166, 240, 255, 0.16);
   background: rgba(7, 11, 13, 0.62);
+  margin-top: 0;
 }
 
 .editor-item {
@@ -1235,7 +1297,7 @@ h2 {
   }
 
   .remote-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, 36px);
   }
 }
 
@@ -1262,15 +1324,6 @@ h2 {
 
   .video-section {
     padding: 0;
-  }
-
-  .remote-panel-head {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .remote-actions {
-    grid-template-columns: 1fr;
   }
 
   .progress-percent {

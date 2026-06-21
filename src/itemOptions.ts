@@ -2,17 +2,20 @@
 export {};
 
 const STORAGE_KEY = "chzzkSaverItemOptions";
-const defaults = {
-  video: { autoDownload: false, removeOnComplete: false },
-  clip: { autoDownload: false, removeOnComplete: false },
-};
+const optionKeys = [
+  "autoDownload",
+  "closeOnAdd",
+  "removeOnComplete",
+  "closeOnComplete",
+];
+const contentKinds = ["video", "clip"];
 
-const controls = {
-  videoAutoDownload: document.querySelector("#videoAutoDownload"),
-  videoRemoveOnComplete: document.querySelector("#videoRemoveOnComplete"),
-  clipAutoDownload: document.querySelector("#clipAutoDownload"),
-  clipRemoveOnComplete: document.querySelector("#clipRemoveOnComplete"),
-};
+const controls = Object.fromEntries(
+  contentKinds.flatMap((kind) => optionKeys.map((key) => [
+    `${kind}.${key}`,
+    document.querySelector(`#${kind}${capitalize(key)}`),
+  ])),
+);
 
 init().catch(() => {});
 
@@ -34,23 +37,24 @@ async function init() {
 }
 
 function readControls() {
-  return normalizeOptions({
-    video: {
-      autoDownload: controls.videoAutoDownload?.checked,
-      removeOnComplete: controls.videoRemoveOnComplete?.checked,
-    },
-    clip: {
-      autoDownload: controls.clipAutoDownload?.checked,
-      removeOnComplete: controls.clipRemoveOnComplete?.checked,
-    },
-  });
+  const next = normalizeOptions();
+  for (const kind of contentKinds) {
+    for (const key of optionKeys) {
+      next[kind][key] = controls[`${kind}.${key}`]?.checked === true;
+    }
+  }
+  return next;
 }
 
 function applyOptions(options) {
-  if (controls.videoAutoDownload) controls.videoAutoDownload.checked = options.video.autoDownload;
-  if (controls.videoRemoveOnComplete) controls.videoRemoveOnComplete.checked = options.video.removeOnComplete;
-  if (controls.clipAutoDownload) controls.clipAutoDownload.checked = options.clip.autoDownload;
-  if (controls.clipRemoveOnComplete) controls.clipRemoveOnComplete.checked = options.clip.removeOnComplete;
+  for (const kind of contentKinds) {
+    for (const key of optionKeys) {
+      const input = controls[`${kind}.${key}`];
+      if (input) {
+        input.checked = options[kind][key];
+      }
+    }
+  }
 }
 
 function readLocalOptions() {
@@ -65,15 +69,22 @@ function writeLocalOptions(options) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeOptions(options)));
 }
 
-function normalizeOptions(options) {
+function normalizeOptions(options = {}) {
   return {
-    video: {
-      autoDownload: Boolean(options?.video?.autoDownload),
-      removeOnComplete: Boolean(options?.video?.removeOnComplete),
-    },
-    clip: {
-      autoDownload: Boolean(options?.clip?.autoDownload),
-      removeOnComplete: Boolean(options?.clip?.removeOnComplete),
-    },
+    video: normalizeKind(options.video),
+    clip: normalizeKind(options.clip),
   };
+}
+
+function normalizeKind(options = {}) {
+  return {
+    autoDownload: Boolean(options.autoDownload),
+    closeOnAdd: Boolean(options.closeOnAdd),
+    removeOnComplete: Boolean(options.removeOnComplete),
+    closeOnComplete: Boolean(options.closeOnComplete),
+  };
+}
+
+function capitalize(value) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }

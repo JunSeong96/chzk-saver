@@ -5,20 +5,20 @@ const CHZZK_URL_PATTERN = /^https:\/\/chzzk\.naver\.com\/(?:video\/\d+|clips\/[A
 
 const remotePanel = query("#remotePanel");
 const remoteStatus = query("#remoteStatus");
-const remoteFocusButton = query("#remoteFocusButton");
 const remotePlayButton = query("#remotePlayButton");
 const remotePauseButton = query("#remotePauseButton");
-const remoteSyncButton = query("#remoteSyncButton");
 const remoteMarkStartButton = query("#remoteMarkStartButton");
 const remoteMarkEndButton = query("#remoteMarkEndButton");
 const remoteTimeText = query("#remoteTimeText");
 const selectedControls = query("#selectedEditorControls");
 const rangeEditor = query("#rangeEditor");
+const downloadControls = query(".download-controls");
 
 let editorTabId = null;
 const sourceTabsByUrl = new Map();
 const sourceTabsById = new Map();
 const pendingEditorUrls = new Set();
+const suppressedEditorUrls = new Set();
 
 init().catch(showRemoteError);
 
@@ -35,15 +35,32 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 document.addEventListener("click", (event) => {
+  const deleteButton = event.target?.closest?.(".editor-item-delete");
+  if (deleteButton) {
+    const card = deleteButton.closest(".editor-item");
+    const url = normalizeUrl(card?.dataset.url || "");
+    if (url) {
+      suppressedEditorUrls.add(url);
+    }
+  }
   if (event.target?.closest?.(".editor-item-main")) {
     window.setTimeout(refreshSelectedControls, 0);
   }
+}, true);
+
+window.addEventListener("chzzk-saver:suppress-editor-url", (event) => {
+  const url = normalizeUrl(event.detail?.url || "");
+  if (url) {
+    suppressedEditorUrls.add(url);
+  }
 });
 
-remoteFocusButton.addEventListener("click", () => focusOrOpenSelectedSourceTab().catch(showRemoteError));
+window.addEventListener("chzzk-saver:selected-editor-item", () => {
+  refreshSelectedControls();
+});
+
 remotePlayButton.addEventListener("click", () => sendPlayerCommand("play").catch(showRemoteError));
 remotePauseButton.addEventListener("click", () => sendPlayerCommand("pause").catch(showRemoteError));
-remoteSyncButton.addEventListener("click", () => syncCurrentTime().catch(showRemoteError));
 remoteMarkStartButton.addEventListener("click", () => markCurrentTime("start").catch(showRemoteError));
 remoteMarkEndButton.addEventListener("click", () => markCurrentTime("end").catch(showRemoteError));
 
@@ -101,7 +118,7 @@ async function addSourceToEditor(source) {
   }
   const normalizedUrl = normalizeUrl(source.url);
   const existingCard = findEditorCardByUrl(normalizedUrl);
-  if (!normalizedUrl || pendingEditorUrls.has(normalizedUrl) || existingCard) {
+  if (!normalizedUrl || suppressedEditorUrls.has(normalizedUrl) || pendingEditorUrls.has(normalizedUrl) || existingCard) {
     return;
   }
   pendingEditorUrls.add(normalizedUrl);
@@ -138,8 +155,9 @@ function findEditorCardByUrl(url) {
 }
 
 function mountSelectedControls() {
-  selectedControls.append(remotePanel, rangeEditor);
+  selectedControls.append(remotePanel, rangeEditor, downloadControls);
   remotePanel.hidden = true;
+  downloadControls.hidden = false;
   selectedControls.hidden = true;
 }
 
@@ -158,6 +176,7 @@ async function focusOrOpenSelectedSourceTab() {
     updateSelectedCardSource(source);
     await addSourceToEditor(source);
   }
+  return source;
 }
 
 async function openSelectedUrlInBrowserTab() {
@@ -186,7 +205,7 @@ function updateSelectedCardSource(source) {
 }
 
 async function sendPlayerCommand(command, payload = {}) {
-  const source = getSelectedSource();
+  const source = await focusOrOpenSelectedSourceTab();
   if (!source?.tabId) {
     throw Error("연결된 원본 탭이 없습니다.");
   }
@@ -199,15 +218,6 @@ async function sendPlayerCommand(command, payload = {}) {
   }
   updateRemoteState(response?.state);
   return response?.state;
-}
-
-async function syncCurrentTime() {
-  const state = await sendPlayerCommand("state");
-  if (typeof state?.currentTime === "number") {
-    window.dispatchEvent(new CustomEvent("chzzk-saver:seek-editor-range", {
-      detail: { time: state.currentTime },
-    }));
-  }
 }
 
 async function markCurrentTime(target) {
@@ -231,18 +241,12 @@ function refreshSelectedControls() {
   }
   selectedControls.hidden = !selected;
   remotePanel.hidden = !selected;
+  downloadControls.hidden = !selected;
   if (!selected) {
     return;
   }
   const source = getSelectedSource();
-  if (!source?.tabId) {
-    remoteStatus.textContent = "원본 탭 연결 없음";
-    remoteFocusButton.textContent = "원본 탭 보기";
-    setPlayerButtonsDisabled(true);
-    return;
-  }
-  remoteStatus.textContent = "원본 탭 연결됨";
-  remoteFocusButton.textContent = "원본 탭 보기";
+  remoteStatus.textContent = source?.tabId ? "원본 탭 연결됨" : "탭 열기 대기";
   setPlayerButtonsDisabled(false);
 }
 
@@ -250,7 +254,7 @@ function updateRemoteState(state) {
   if (!state) {
     return;
   }
-  remoteStatus.textContent = state.paused ? "일시정지됨" : "재생 중";
+  remoteStatus.textContent = state.paused ? "정지됨" : "재생 중";
   remoteTimeText.textContent = `${formatTime(state.currentTime)}${state.duration ? ` / ${formatTime(state.duration)}` : ""}`;
 }
 
@@ -275,7 +279,6 @@ function setPlayerButtonsDisabled(disabled) {
   for (const button of [
     remotePlayButton,
     remotePauseButton,
-    remoteSyncButton,
     remoteMarkStartButton,
     remoteMarkEndButton,
   ]) {

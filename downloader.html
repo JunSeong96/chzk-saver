@@ -18,24 +18,48 @@
           <div class="options-menu-panel">
             <fieldset>
               <legend>다시보기</legend>
-              <label>
-                <input id="videoAutoDownload" type="checkbox">
+              <label class="option-switch">
                 <span>항목 추가 시 자동 다운로드</span>
+                <input id="videoAutoDownload" type="checkbox">
+                <i aria-hidden="true"></i>
               </label>
-              <label>
-                <input id="videoRemoveOnComplete" type="checkbox">
+              <label class="option-switch">
+                <span>항목 추가 시 치지직 탭 닫기</span>
+                <input id="videoCloseOnAdd" type="checkbox">
+                <i aria-hidden="true"></i>
+              </label>
+              <label class="option-switch">
                 <span>다운로드 완료 시 목록에서 삭제</span>
+                <input id="videoRemoveOnComplete" type="checkbox">
+                <i aria-hidden="true"></i>
+              </label>
+              <label class="option-switch">
+                <span>다운로드 완료 시 치지직 탭 닫기</span>
+                <input id="videoCloseOnComplete" type="checkbox">
+                <i aria-hidden="true"></i>
               </label>
             </fieldset>
             <fieldset>
               <legend>클립</legend>
-              <label>
-                <input id="clipAutoDownload" type="checkbox">
+              <label class="option-switch">
                 <span>항목 추가 시 자동 다운로드</span>
+                <input id="clipAutoDownload" type="checkbox">
+                <i aria-hidden="true"></i>
               </label>
-              <label>
-                <input id="clipRemoveOnComplete" type="checkbox">
+              <label class="option-switch">
+                <span>항목 추가 시 치지직 탭 닫기</span>
+                <input id="clipCloseOnAdd" type="checkbox">
+                <i aria-hidden="true"></i>
+              </label>
+              <label class="option-switch">
                 <span>다운로드 완료 시 목록에서 삭제</span>
+                <input id="clipRemoveOnComplete" type="checkbox">
+                <i aria-hidden="true"></i>
+              </label>
+              <label class="option-switch">
+                <span>다운로드 완료 시 치지직 탭 닫기</span>
+                <input id="clipCloseOnComplete" type="checkbox">
+                <i aria-hidden="true"></i>
               </label>
             </fieldset>
           </div>
@@ -58,20 +82,23 @@
               <h2 id="videoTitle"></h2>
               <section id="remotePanel" class="remote-panel" hidden>
                 <div class="remote-panel-head">
-                  <div>
-                    <span>원본 플레이어</span>
-                    <strong id="remoteStatus">연결 확인 중</strong>
-                  </div>
-                  <button id="remoteFocusButton" type="button">원본 탭 보기</button>
+                  <strong id="remoteStatus">연결 확인 중</strong>
+                  <p id="remoteTimeText" class="remote-time">0:00</p>
                 </div>
-                <div class="remote-actions">
-                  <button id="remotePlayButton" type="button">재생</button>
-                  <button id="remotePauseButton" type="button">정지</button>
-                  <button id="remoteSyncButton" type="button">시간 동기화</button>
-                  <button id="remoteMarkStartButton" type="button">구간 시작 설정</button>
-                  <button id="remoteMarkEndButton" type="button">구간 종료 설정</button>
+                <div class="remote-actions" aria-label="원본 플레이어 컨트롤">
+                  <button id="remotePlayButton" type="button" title="재생" aria-label="재생">
+                    <span aria-hidden="true">▶</span>
+                  </button>
+                  <button id="remotePauseButton" type="button" title="정지" aria-label="정지">
+                    <span aria-hidden="true">■</span>
+                  </button>
+                  <button id="remoteMarkStartButton" type="button" title="구간 시작 설정" aria-label="구간 시작 설정">
+                    <span aria-hidden="true">[</span>
+                  </button>
+                  <button id="remoteMarkEndButton" type="button" title="구간 종료 설정" aria-label="구간 종료 설정">
+                    <span aria-hidden="true">]</span>
+                  </button>
                 </div>
-                <p id="remoteTimeText" class="remote-time">0:00</p>
               </section>
               <label class="field compact player-quality">
                 <span>플레이어 화질</span>
