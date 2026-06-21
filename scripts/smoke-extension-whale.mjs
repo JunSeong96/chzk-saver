@@ -276,8 +276,8 @@ async function waitForSmokeApi(page) {
 async function clickSelectedDownloadThroughUi(page, { durationSeconds, qualityHeight }) {
   const beforeCount = await getSmokeJobCount(page);
   const selection = await configureSelectedDownloadUi(page, { durationSeconds, qualityHeight });
-  await page.locator("#downloadButton").scrollIntoViewIfNeeded();
-  await page.locator("#downloadButton").click({ timeout: 30_000 });
+  await page.locator(".editor-item.selected .editor-item-download").scrollIntoViewIfNeeded();
+  await page.locator(".editor-item.selected .editor-item-download").click({ timeout: 30_000 });
   await page.waitForFunction((count) =>
     (window.__CHZZK_SAVER_SMOKE__?.getJobs?.().length || 0) > count,
   beforeCount, { timeout: 30_000 });
@@ -294,8 +294,8 @@ async function clickAllEditorDownloadsThroughUi(page, { durationSeconds, quality
     const beforeCount = await getSmokeJobCount(page);
     await page.locator(".editor-item").nth(index).locator(".editor-item-main").click({ timeout: 30_000 });
     await configureSelectedDownloadUi(page, { durationSeconds, qualityHeight });
-    await page.locator("#downloadButton").scrollIntoViewIfNeeded();
-    await page.locator("#downloadButton").click({ timeout: 30_000 });
+    await page.locator(".editor-item.selected .editor-item-download").scrollIntoViewIfNeeded();
+    await page.locator(".editor-item.selected .editor-item-download").click({ timeout: 30_000 });
     await page.waitForFunction((count) =>
       (window.__CHZZK_SAVER_SMOKE__?.getJobs?.().length || 0) > count,
     beforeCount, { timeout: 30_000 });
@@ -314,7 +314,7 @@ async function configureSelectedDownloadUi(page, { durationSeconds, qualityHeigh
       throw new Error("smoke download requires a selected editor item");
     }
     const qualitySelect = document.querySelector("#qualitySelect");
-    const downloadButton = document.querySelector("#downloadButton");
+    const downloadButton = selected.querySelector(".editor-item-download");
     if (!qualitySelect || !downloadButton) {
       throw new Error("smoke download controls are missing");
     }
@@ -342,6 +342,10 @@ async function configureSelectedDownloadUi(page, { durationSeconds, qualityHeigh
       url: selected.dataset.url || "",
       quality: selectedOption.textContent?.trim() || "",
       range: document.querySelector("#rangeDurationText")?.textContent?.trim() || "",
+      cardTrimStart: selected.dataset.trimStart || "",
+      cardTrimEnd: selected.dataset.trimEnd || "",
+      downloadIcon: downloadButton.querySelector(".editor-item-icon")?.className || "",
+      downloadRange: downloadButton.dataset.range || "",
     };
   }, { durationSeconds, qualityHeight });
 }
@@ -382,7 +386,8 @@ async function assertVisibleDownloadUi(page, { expectedDone }) {
       jobCards,
       downloadButtons: [...document.querySelectorAll(".editor-item-download")]
         .map((button) => ({
-          text: button.textContent?.trim() || "",
+          icon: button.querySelector(".editor-item-icon")?.className || "",
+          range: button.dataset.range || "",
           disabled: Boolean(button.disabled),
         })),
     };

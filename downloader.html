@@ -16,49 +16,64 @@
         <details class="options-menu">
           <summary>옵션</summary>
           <div class="options-menu-panel">
-            <fieldset>
-              <legend>다시보기</legend>
-              <label class="option-switch">
-                <span>항목 추가 시 자동 다운로드</span>
+            <div class="options-grid" role="group" aria-label="항목별 옵션">
+              <span class="options-grid-head"></span>
+              <span class="options-grid-head">다시보기</span>
+              <span class="options-grid-head">클립</span>
+
+              <span class="option-row-label">항목 추가 시 자동 다운로드</span>
+              <label class="option-switch option-switch-compact">
+                <span>다시보기 항목 추가 시 자동 다운로드</span>
                 <input id="videoAutoDownload" type="checkbox">
                 <i aria-hidden="true"></i>
               </label>
-              <label class="option-switch">
-                <span>항목 추가 시 치지직 탭 닫기</span>
-                <input id="videoCloseOnAdd" type="checkbox">
-                <i aria-hidden="true"></i>
-              </label>
-              <label class="option-switch">
-                <span>다운로드 완료 시 목록에서 삭제</span>
-                <input id="videoRemoveOnComplete" type="checkbox">
-                <i aria-hidden="true"></i>
-              </label>
-              <label class="option-switch">
-                <span>다운로드 완료 시 치지직 탭 닫기</span>
-                <input id="videoCloseOnComplete" type="checkbox">
-                <i aria-hidden="true"></i>
-              </label>
-            </fieldset>
-            <fieldset>
-              <legend>클립</legend>
-              <label class="option-switch">
-                <span>항목 추가 시 자동 다운로드</span>
+              <label class="option-switch option-switch-compact">
+                <span>클립 항목 추가 시 자동 다운로드</span>
                 <input id="clipAutoDownload" type="checkbox">
                 <i aria-hidden="true"></i>
               </label>
-              <label class="option-switch">
-                <span>항목 추가 시 치지직 탭 닫기</span>
+
+              <span class="option-row-label">항목 추가 시 치지직 탭 닫기</span>
+              <label class="option-switch option-switch-compact">
+                <span>다시보기 항목 추가 시 치지직 탭 닫기</span>
+                <input id="videoCloseOnAdd" type="checkbox">
+                <i aria-hidden="true"></i>
+              </label>
+              <label class="option-switch option-switch-compact">
+                <span>클립 항목 추가 시 치지직 탭 닫기</span>
                 <input id="clipCloseOnAdd" type="checkbox">
                 <i aria-hidden="true"></i>
               </label>
-              <label class="option-switch">
-                <span>다운로드 완료 시 목록에서 삭제</span>
+
+              <span class="option-row-label">다운로드 완료 시 목록에서 삭제</span>
+              <label class="option-switch option-switch-compact">
+                <span>다시보기 다운로드 완료 시 목록에서 삭제</span>
+                <input id="videoRemoveOnComplete" type="checkbox">
+                <i aria-hidden="true"></i>
+              </label>
+              <label class="option-switch option-switch-compact">
+                <span>클립 다운로드 완료 시 목록에서 삭제</span>
                 <input id="clipRemoveOnComplete" type="checkbox">
                 <i aria-hidden="true"></i>
               </label>
-              <label class="option-switch">
-                <span>다운로드 완료 시 치지직 탭 닫기</span>
+
+              <span class="option-row-label">다운로드 완료 시 치지직 탭 닫기</span>
+              <label class="option-switch option-switch-compact">
+                <span>다시보기 다운로드 완료 시 치지직 탭 닫기</span>
+                <input id="videoCloseOnComplete" type="checkbox">
+                <i aria-hidden="true"></i>
+              </label>
+              <label class="option-switch option-switch-compact">
+                <span>클립 다운로드 완료 시 치지직 탭 닫기</span>
                 <input id="clipCloseOnComplete" type="checkbox">
+                <i aria-hidden="true"></i>
+              </label>
+            </div>
+            <fieldset>
+              <legend>진단</legend>
+              <label class="option-switch">
+                <span>디버그 모드</span>
+                <input id="debugModeToggle" type="checkbox">
                 <i aria-hidden="true"></i>
               </label>
             </fieldset>
@@ -69,6 +84,20 @@
           <textarea id="vodUrl" rows="1" autocomplete="off"></textarea>
           <button id="inspectButton" type="button">불러오기</button>
         </div>
+      </section>
+
+      <section id="debugPanel" class="debug-panel" hidden>
+        <div class="debug-panel-head">
+          <div>
+            <strong>디버그 로그</strong>
+            <span id="debugSummary">로그 수집 대기 중</span>
+          </div>
+          <div class="debug-actions">
+            <button id="debugCopyButton" type="button">복사</button>
+            <button id="debugClearButton" type="button">비우기</button>
+          </div>
+        </div>
+        <pre id="debugLog" class="debug-log" aria-live="polite"></pre>
       </section>
 
       <div class="workspace-layout">
@@ -86,17 +115,14 @@
                   <p id="remoteTimeText" class="remote-time">0:00</p>
                 </div>
                 <div class="remote-actions" aria-label="원본 플레이어 컨트롤">
-                  <button id="remotePlayButton" type="button" title="재생" aria-label="재생">
-                    <span aria-hidden="true">▶</span>
-                  </button>
-                  <button id="remotePauseButton" type="button" title="정지" aria-label="정지">
-                    <span aria-hidden="true">■</span>
+                  <button id="remotePlayButton" class="remote-toggle-button" type="button" title="재생/일시정지" aria-label="재생/일시정지">
+                    <span class="remote-toggle-icon" aria-hidden="true"></span>
                   </button>
                   <button id="remoteMarkStartButton" type="button" title="구간 시작 설정" aria-label="구간 시작 설정">
-                    <span aria-hidden="true">[</span>
+                    <span class="remote-bracket-icon open" aria-hidden="true"></span>
                   </button>
                   <button id="remoteMarkEndButton" type="button" title="구간 종료 설정" aria-label="구간 종료 설정">
-                    <span aria-hidden="true">]</span>
+                    <span class="remote-bracket-icon close" aria-hidden="true"></span>
                   </button>
                 </div>
               </section>
@@ -108,7 +134,7 @@
                 <div class="range-head">
                   <div>
                     <span>저장 구간</span>
-                    <strong id="rangeDurationText">전체</strong>
+                    <strong id="rangeDurationText">0:00</strong>
                   </div>
                   <button id="resetRangeButton" class="range-reset-button" type="button">전체</button>
                 </div>

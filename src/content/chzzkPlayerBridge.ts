@@ -2,6 +2,19 @@
 export {};
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "CHZZK_CONTEXT_FETCH") {
+    handleContextFetch(message)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    return true;
+  }
+
   if (message?.type !== "CHZZK_PLAYER_COMMAND") {
     return false;
   }
@@ -53,6 +66,29 @@ async function handlePlayerCommand(message) {
   }
 
   return getPlayerState(video);
+}
+
+async function handleContextFetch(message) {
+  if (message.payload?.probe) {
+    return { ready: true };
+  }
+
+  const url = String(message.payload?.url || "");
+  if (!/^https:\/\/api\.chzzk\.naver\.com\//.test(url)) {
+    throw Error("허용되지 않은 치지직 요청입니다.");
+  }
+
+  const response = await fetch(url, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw Error(`HTTP ${response.status}`);
+  }
+
+  return {
+    bytes: Array.from(new Uint8Array(await response.arrayBuffer())),
+  };
 }
 
 async function waitForVideo() {

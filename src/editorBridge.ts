@@ -6,7 +6,6 @@ const CHZZK_URL_PATTERN = /^https:\/\/chzzk\.naver\.com\/(?:video\/\d+|clips\/[A
 const remotePanel = query("#remotePanel");
 const remoteStatus = query("#remoteStatus");
 const remotePlayButton = query("#remotePlayButton");
-const remotePauseButton = query("#remotePauseButton");
 const remoteMarkStartButton = query("#remoteMarkStartButton");
 const remoteMarkEndButton = query("#remoteMarkEndButton");
 const remoteTimeText = query("#remoteTimeText");
@@ -59,8 +58,7 @@ window.addEventListener("chzzk-saver:selected-editor-item", () => {
   refreshSelectedControls();
 });
 
-remotePlayButton.addEventListener("click", () => sendPlayerCommand("play").catch(showRemoteError));
-remotePauseButton.addEventListener("click", () => sendPlayerCommand("pause").catch(showRemoteError));
+remotePlayButton.addEventListener("click", () => sendPlayerCommand("toggle").catch(showRemoteError));
 remoteMarkStartButton.addEventListener("click", () => markCurrentTime("start").catch(showRemoteError));
 remoteMarkEndButton.addEventListener("click", () => markCurrentTime("end").catch(showRemoteError));
 
@@ -155,9 +153,9 @@ function findEditorCardByUrl(url) {
 }
 
 function mountSelectedControls() {
-  selectedControls.append(remotePanel, rangeEditor, downloadControls);
+  selectedControls.append(remotePanel, rangeEditor);
   remotePanel.hidden = true;
-  downloadControls.hidden = false;
+  downloadControls.hidden = true;
   selectedControls.hidden = true;
 }
 
@@ -234,19 +232,20 @@ async function markCurrentTime(target) {
 function refreshSelectedControls() {
   const selected = getSelectedCard();
   if (selected) {
-    const slot = selected.querySelector(".editor-item-controls-slot");
+    const slot = selected.querySelector(".editor-item-actions");
     if (slot && selectedControls.parentElement !== slot) {
       slot.append(selectedControls);
     }
   }
   selectedControls.hidden = !selected;
   remotePanel.hidden = !selected;
-  downloadControls.hidden = !selected;
+  downloadControls.hidden = true;
   if (!selected) {
     return;
   }
   const source = getSelectedSource();
   remoteStatus.textContent = source?.tabId ? "원본 탭 연결됨" : "탭 열기 대기";
+  updatePlayToggleButton(true);
   setPlayerButtonsDisabled(false);
 }
 
@@ -256,6 +255,14 @@ function updateRemoteState(state) {
   }
   remoteStatus.textContent = state.paused ? "정지됨" : "재생 중";
   remoteTimeText.textContent = `${formatTime(state.currentTime)}${state.duration ? ` / ${formatTime(state.duration)}` : ""}`;
+  updatePlayToggleButton(state.paused);
+}
+
+function updatePlayToggleButton() {
+  const label = "재생/일시정지";
+  remotePlayButton.title = label;
+  remotePlayButton.setAttribute("aria-label", label);
+  remotePlayButton.querySelector("span")?.classList.add("remote-toggle-icon");
 }
 
 function getSelectedSource() {
@@ -278,7 +285,6 @@ function getSelectedCard() {
 function setPlayerButtonsDisabled(disabled) {
   for (const button of [
     remotePlayButton,
-    remotePauseButton,
     remoteMarkStartButton,
     remoteMarkEndButton,
   ]) {

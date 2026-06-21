@@ -140,6 +140,9 @@ async function handleMessage(message, sender) {
     return { ok: true };
   }
   if (message.type === "DOWNLOAD_CLEAR_JOBS") {
+    await emitDebugLog("background", "clearJobs.forward", {
+      reason: message.payload?.reason || "",
+    });
     await sendToOffscreen("OFFSCREEN_CLEAR_JOBS", message.payload);
     return { ok: true };
   }
@@ -152,8 +155,17 @@ async function handleMessage(message, sender) {
     return { ok: true };
   }
 
+  if (message.target === "background" && message.type === "OFFSCREEN_DEBUG_LOG") {
+    await emitDebugLog("offscreen", message.payload?.event || "log", message.payload?.data || {});
+    return { ok: true };
+  }
+
   if (message.target === "background" && message.type === "OFFSCREEN_SAVE_FILE") {
     const payload = message.payload;
+    await emitDebugLog("background", "saveFile.start", {
+      filename: payload.filename,
+      objectUrl: Boolean(payload.objectUrl),
+    });
     await waitForDownload(
       await chrome.downloads.download({
         url: payload.objectUrl,
@@ -162,7 +174,22 @@ async function handleMessage(message, sender) {
         conflictAction: "uniquify",
       }),
     );
+    await emitDebugLog("background", "saveFile.done", {
+      filename: payload.filename,
+    });
     return { ok: true };
+  }
+
+  if (message.target === "background" && message.type === "OFFSCREEN_FETCH_BINARY") {
+    await emitDebugLog("background", "contextFetch.request", {
+      url: sanitizeDebugUrl(message.payload?.url),
+      sourceTabId: message.payload?.sourceTabId || null,
+      sourceUrl: sanitizeDebugUrl(message.payload?.sourceUrl),
+    });
+    return {
+      ok: true,
+      bytes: await fetchBinaryFromChzzkContext(message.payload || {}),
+    };
   }
 
   return { ok: true };
@@ -177,6 +204,68 @@ async function ensurePlayerBridge(tabId) {
       target: { tabId },
       func: installInjectedPlayerBridge,
     });
+  }
+}
+
+async function ensureContextFetchBridge(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: "CHZZK_CONTEXT_FETCH",
+      payload: { probe: true },
+    });
+    return;
+  } catch {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: installInjectedContextFetchBridge,
+    });
+  }
+}
+
+function installInjectedContextFetchBridge() {
+  if (window.__CHZZK_SAVER_CONTEXT_FETCH_BRIDGE__) {
+    return;
+  }
+  window.__CHZZK_SAVER_CONTEXT_FETCH_BRIDGE__ = true;
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "CHZZK_CONTEXT_FETCH") {
+      return false;
+    }
+
+    handleContextFetch(message)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    return true;
+  });
+
+  async function handleContextFetch(message) {
+    if (message.payload?.probe) {
+      return { ready: true };
+    }
+
+    const url = String(message.payload?.url || "");
+    if (!/^https:\/\/api\.chzzk\.naver\.com\//.test(url)) {
+      throw Error("허용되지 않은 치지직 요청입니다.");
+    }
+
+    const response = await fetch(url, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw Error(`HTTP ${response.status}`);
+    }
+
+    return {
+      bytes: Array.from(new Uint8Array(await response.arrayBuffer())),
+    };
   }
 }
 
@@ -383,8 +472,144 @@ async function openSourceTab(url) {
   return tab;
 }
 
+async function fetchBinaryFromChzzkContext(payload) {
+  const url = String(payload.url || "");
+  const sourceUrl = String(payload.sourceUrl || "");
+  if (!/^https:\/\/api\.chzzk\.naver\.com\//.test(url)) {
+    throw Error("허용되지 않은 치지직 요청입니다.");
+  }
+
+  let tab = await resolveChzzkContextTab(payload.sourceTabId, sourceUrl);
+  let createdTabId = null;
+  if (!tab?.id) {
+    if (!isChzzkPlayableUrl(sourceUrl)) {
+      throw Error("AES 키를 받을 치지직 원본 탭을 찾지 못했습니다.");
+    }
+    tab = await chrome.tabs.create({ url: sourceUrl, active: false });
+    createdTabId = tab.id ?? null;
+  }
+
+  if (!tab?.id) {
+    throw Error("AES 키를 받을 치지직 원본 탭을 열지 못했습니다.");
+  }
+
+  try {
+    await waitForTabComplete(tab.id);
+    await ensureContextFetchBridge(tab.id);
+    await emitDebugLog("background", "contextFetch.tabReady", {
+      tabId: tab.id,
+      createdTabId,
+      tabUrl: sanitizeDebugUrl(tab.url),
+    });
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: "CHZZK_CONTEXT_FETCH",
+      payload: { url },
+    });
+    if (response?.ok === false) {
+      throw Error(response.message || "치지직 페이지에서 AES 키를 받지 못했습니다.");
+    }
+    if (!Array.isArray(response?.bytes)) {
+      throw Error("치지직 페이지의 AES 키 응답이 올바르지 않습니다.");
+    }
+    await emitDebugLog("background", "contextFetch.done", {
+      byteLength: response.bytes.length,
+    });
+    return response.bytes;
+  } finally {
+    if (createdTabId) {
+      chrome.tabs.remove(createdTabId).catch(() => {});
+    }
+  }
+}
+
+async function resolveChzzkContextTab(sourceTabId, sourceUrl) {
+  const tabId = Number(sourceTabId);
+  if (Number.isFinite(tabId)) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (tab?.id && isChzzkPlayableUrl(tab.url)) {
+      return tab;
+    }
+  }
+
+  const tabs = await collectChzzkTabs();
+  if (sourceUrl) {
+    const normalized = normalizeChzzkTabUrl(sourceUrl);
+    const matched = tabs.find((tab) => normalizeChzzkTabUrl(tab.url) === normalized);
+    if (matched?.tabId) {
+      return chrome.tabs.get(matched.tabId).catch(() => null);
+    }
+  }
+  if (tabs[0]?.tabId) {
+    return chrome.tabs.get(tabs[0].tabId).catch(() => null);
+  }
+  return null;
+}
+
+function waitForTabComplete(tabId) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(Error("치지직 원본 탭 로딩 시간이 초과되었습니다."));
+    }, 20000);
+    const cleanup = () => {
+      clearTimeout(timeout);
+      chrome.tabs.onUpdated.removeListener(listener);
+    };
+    const listener = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo.status === "complete") {
+        cleanup();
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab.status === "complete") {
+        cleanup();
+        resolve();
+      }
+    }).catch((error) => {
+      cleanup();
+      reject(error);
+    });
+  });
+}
+
 function isChzzkPlayableUrl(url) {
   return typeof url === "string" && CHZZK_URL_PATTERN.test(url);
+}
+
+function normalizeChzzkTabUrl(url) {
+  const match = String(url || "").match(CHZZK_URL_PATTERN);
+  return match ? match[0] : String(url || "");
+}
+
+async function emitDebugLog(source, event, data = {}) {
+  await broadcastToEditorPages({
+    type: "DOWNLOAD_DEBUG_LOG",
+    payload: {
+      source,
+      event,
+      data,
+      at: Date.now(),
+    },
+  }).catch(() => {});
+}
+
+function sanitizeDebugUrl(url) {
+  if (!url) {
+    return "";
+  }
+  try {
+    const parsed = new URL(String(url));
+    for (const key of parsed.searchParams.keys()) {
+      if (/key|token|hmac|hdnts|auth|signature/i.test(key)) {
+        parsed.searchParams.set(key, "[redacted]");
+      }
+    }
+    return parsed.href;
+  } catch {
+    return String(url).slice(0, 300);
+  }
 }
 
 function ensureMp4Filename(filename) {
