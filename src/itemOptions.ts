@@ -20,19 +20,24 @@ const controls = Object.fromEntries(
 init().catch(() => {});
 
 async function init() {
-  const storage = globalThis.chrome?.storage?.local;
-  const stored = storage ? await storage.get(STORAGE_KEY).catch(() => ({})) : {};
-  const options = normalizeOptions(stored?.[STORAGE_KEY] || readLocalOptions());
-  writeLocalOptions(options);
-  applyOptions(options);
+  const localOptions = normalizeOptions(readLocalOptions());
+  writeLocalOptions(localOptions);
+  applyOptions(localOptions);
 
   for (const input of Object.values(controls)) {
     input?.addEventListener("change", () => {
       const next = readControls();
       writeLocalOptions(next);
-      storage?.set({ [STORAGE_KEY]: next }).catch(() => {});
+      writeStoredOptions(next);
       window.dispatchEvent(new CustomEvent("chzzk-saver:item-options-changed", { detail: next }));
     });
+  }
+
+  const storedOptions = await readStoredOptions();
+  if (storedOptions) {
+    const options = normalizeOptions(storedOptions);
+    writeLocalOptions(options);
+    applyOptions(options);
   }
 }
 
@@ -67,6 +72,40 @@ function readLocalOptions() {
 
 function writeLocalOptions(options) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeOptions(options)));
+}
+
+async function readStoredOptions() {
+  const storage = globalThis.chrome?.storage?.local;
+  if (!storage?.get) {
+    return null;
+  }
+  try {
+    const result = storage.get(STORAGE_KEY);
+    if (result?.then) {
+      return (await result.catch(() => null))?.[STORAGE_KEY] || null;
+    }
+  } catch {}
+  return new Promise((resolve) => {
+    try {
+      storage.get(STORAGE_KEY, (result) => resolve(result?.[STORAGE_KEY] || null));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function writeStoredOptions(options) {
+  const storage = globalThis.chrome?.storage?.local;
+  if (!storage?.set) {
+    return;
+  }
+  try {
+    storage.set({ [STORAGE_KEY]: normalizeOptions(options) })?.catch?.(() => {});
+  } catch {
+    try {
+      storage.set({ [STORAGE_KEY]: normalizeOptions(options) }, () => {});
+    } catch {}
+  }
 }
 
 function normalizeOptions(options = {}) {
