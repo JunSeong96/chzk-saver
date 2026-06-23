@@ -1,4 +1,3 @@
-// @ts-nocheck
 export {};
 
 const STORAGE_KEY = "chzzkSaverItemOptions";
@@ -7,15 +6,22 @@ const optionKeys = [
   "closeOnAdd",
   "removeOnComplete",
   "closeOnComplete",
-];
-const contentKinds = ["video", "clip"];
+] as const;
+const contentKinds = ["video", "clip"] as const;
+
+type OptionKey = typeof optionKeys[number];
+type ContentKind = typeof contentKinds[number];
+type KindOptions = Record<OptionKey, boolean>;
+type ItemOptions = Record<ContentKind, KindOptions>;
+type PartialKindOptions = Partial<Record<OptionKey, unknown>>;
+type PartialItemOptions = Partial<Record<ContentKind, PartialKindOptions>> | null | undefined;
 
 const controls = Object.fromEntries(
   contentKinds.flatMap((kind) => optionKeys.map((key) => [
     `${kind}.${key}`,
-    document.querySelector(`#${kind}${capitalize(key)}`),
+    document.querySelector<HTMLInputElement>(`#${kind}${capitalize(key)}`),
   ])),
-);
+) as Record<`${ContentKind}.${OptionKey}`, HTMLInputElement | null>;
 
 const ready = init();
 globalThis.chzzkSaverItemOptionsReady = ready;
@@ -39,7 +45,7 @@ async function init() {
   }
 }
 
-function readControls() {
+function readControls(): ItemOptions {
   const next = normalizeOptions();
   for (const kind of contentKinds) {
     for (const key of optionKeys) {
@@ -49,7 +55,7 @@ function readControls() {
   return next;
 }
 
-function applyOptions(options) {
+function applyOptions(options: ItemOptions) {
   for (const kind of contentKinds) {
     for (const key of optionKeys) {
       const input = controls[`${kind}.${key}`];
@@ -68,7 +74,7 @@ function readLocalOptions() {
   }
 }
 
-function writeLocalOptions(options) {
+function writeLocalOptions(options: PartialItemOptions) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeOptions(options)));
 }
 
@@ -92,7 +98,7 @@ async function readStoredOptions() {
   });
 }
 
-function writeStoredOptions(options) {
+function writeStoredOptions(options: PartialItemOptions) {
   const storage = globalThis.chrome?.storage?.local;
   if (!storage?.set) {
     return;
@@ -106,29 +112,31 @@ function writeStoredOptions(options) {
   }
 }
 
-function notifyOptionsChanged(options) {
+function notifyOptionsChanged(options: PartialItemOptions) {
   globalThis.chzzkSaverItemOptions = normalizeOptions(options);
   window.dispatchEvent(new CustomEvent("chzzk-saver:item-options-changed", {
     detail: globalThis.chzzkSaverItemOptions,
   }));
 }
 
-function normalizeOptions(options = {}) {
+function normalizeOptions(options: PartialItemOptions = {}): ItemOptions {
+  const source = options ?? {};
   return {
-    video: normalizeKind(options.video),
-    clip: normalizeKind(options.clip),
+    video: normalizeKind(source.video),
+    clip: normalizeKind(source.clip),
   };
 }
 
-function normalizeKind(options = {}) {
+function normalizeKind(options: PartialKindOptions = {}): KindOptions {
+  const source = options ?? {};
   return {
-    autoDownload: Boolean(options.autoDownload),
-    closeOnAdd: Boolean(options.closeOnAdd),
-    removeOnComplete: Boolean(options.removeOnComplete),
-    closeOnComplete: Boolean(options.closeOnComplete),
+    autoDownload: Boolean(source.autoDownload),
+    closeOnAdd: Boolean(source.closeOnAdd),
+    removeOnComplete: Boolean(source.removeOnComplete),
+    closeOnComplete: Boolean(source.closeOnComplete),
   };
 }
 
-function capitalize(value) {
+function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }

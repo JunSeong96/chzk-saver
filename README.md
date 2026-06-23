@@ -58,7 +58,6 @@ npm run smoke:extension:whale -- --metadata-url https://chzzk.naver.com/video/13
 │  ├─ popup.ts
 │  ├─ downloader.ts
 │  ├─ offscreen.ts
-│  ├─ types.ts
 │  └─ styles/
 │     ├─ popup.css
 │     └─ downloader.css

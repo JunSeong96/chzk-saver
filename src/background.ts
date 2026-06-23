@@ -864,228 +864,8 @@ async function runQualityAutoCommandInPage() {
     return String(target.constructor?.name || typeof target);
   }
 
-  function findQualitySelect(root) {
-    return [...root.querySelectorAll("select")]
-      .find((select) => [...select.options].some((option) => isAutoText(option.textContent) || isQualityText(option.textContent))) || null;
-  }
-
-  function findQualityButton(root) {
-    const controls = [...root.querySelectorAll("button, [role='button'], [role='menuitem'], [role='option'], [aria-label], [title], [data-testid], [class*='quality'], [class*='resolution']")]
-      .filter((element) => isVisibleElement(element) && isCompactControl(element));
-    return controls
-      .map((element) => ({ element, score: getQualityControlScore(element) }))
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score)[0]?.element || null;
-  }
-
-  function getQualityControlScore(element) {
-    if (!isCompactControl(element)) {
-      return 0;
-    }
-    const text = getElementText(element);
-    let score = 0;
-    if (/quality|resolution|pzp.*quality|\uD654\uC9C8|\uD574\uC0C1\uB3C4/i.test(text)) {
-      score += 100;
-    }
-    if (isQualityText(text)) {
-      score += 45;
-    }
-    if (score <= 0) {
-      return 0;
-    }
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 120 && rect.height <= 80) {
-      score += 8;
-    }
-    return score;
-  }
-
-  function findSettingsButton(root) {
-    const controls = [...root.querySelectorAll("button, [role='button'], [aria-label], [title], [data-testid], [class*='setting']")]
-      .filter((element) => isVisibleElement(element) && isCompactControl(element));
-    return controls
-      .map((element) => ({ element, score: getSettingsControlScore(element) }))
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score)[0]?.element || null;
-  }
-
-  function getSettingsControlScore(element) {
-    if (!isCompactControl(element)) {
-      return 0;
-    }
-    const text = getElementText(element);
-    if (/clip|custom__clip|pip|fullscreen|viewmode|volume|playback|prev|next|클립|전체\s*화면|넓은\s*화면/i.test(text) && !/pzp-setting-button|pzp-pc-setting-button/i.test(text)) {
-      return 0;
-    }
-    let score = 0;
-    if (/pzp-setting-button|pzp-pc-setting-button/i.test(text)) {
-      score += 180;
-    }
-    if (/(^|\s)\uC124\uC815(\s|$)|menu open|open settings/i.test(text)) {
-      score += 90;
-    }
-    if (/setting|settings|option|options|pzp.*setting|\uC124\uC815|\uBA54\uB274/i.test(text)) {
-      score += 100;
-    }
-    if (score <= 0) {
-      return 0;
-    }
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 80 && rect.height <= 80) {
-      score += 12;
-    }
-    return score;
-  }
-
-  function findSettingsButtonByPosition(root, video) {
-    const playerRect = (findPlayerRoot(video) || video).getBoundingClientRect();
-    const controls = [...root.querySelectorAll("button, [role='button'], [aria-label], [title], [data-testid], [class]")]
-      .filter((element) => isVisibleElement(element) && isCompactControl(element))
-      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
-      .filter(({ rect }) => {
-        const centerX = rect.left + rect.width / 2;
-        const centerY = rect.top + rect.height / 2;
-        return (
-          centerX >= playerRect.left + playerRect.width * 0.52 &&
-          centerX <= playerRect.right + 8 &&
-          centerY >= playerRect.bottom - Math.max(140, playerRect.height * 0.2) &&
-          centerY <= playerRect.bottom + 12
-        );
-      })
-      .sort((a, b) => {
-        const aCenterX = a.rect.left + a.rect.width / 2;
-        const bCenterX = b.rect.left + b.rect.width / 2;
-        return bCenterX - aCenterX;
-      });
-
-    return controls[2]?.element || controls[1]?.element || controls[0]?.element || null;
-  }
-
-  function findAutoQualityOption(root) {
-    const options = [...root.querySelectorAll("button, [role='button'], [role='menuitem'], [role='option'], li, div, span, [aria-label], [title], [data-testid], [class*='quality']")]
-      .filter((element) => isVisibleElement(element) && isMenuOptionCandidate(element) && isAutoText(getElementText(element)));
-    return options
-      .map((element) => ({ element, score: getAutoOptionScore(element) }))
-      .sort((a, b) => b.score - a.score)[0]?.element || null;
-  }
-
-  function findQualityMenuItem(root) {
-    const options = [...root.querySelectorAll("button, [role='button'], [role='menuitem'], [role='option'], li, div, span, [aria-label], [title], [data-testid], [class*='quality'], [class*='resolution']")]
-      .filter((element) => isVisibleElement(element) && isMenuOptionCandidate(element));
-    return options
-      .map((element) => ({ element, score: getQualityMenuItemScore(element) }))
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score)[0]?.element || null;
-  }
-
-  function getQualityMenuItemScore(element) {
-    const text = getElementText(element);
-    let score = 0;
-    if (/\uD654\uC9C8|\uD574\uC0C1\uB3C4|quality|resolution/i.test(text)) {
-      score += 100;
-    }
-    if (isQualityText(text)) {
-      score += 50;
-    }
-    if (element.getAttribute("role") === "menuitem" || element.getAttribute("role") === "option") {
-      score += 12;
-    }
-    return score;
-  }
-
-  function getAutoOptionScore(element) {
-    const text = getElementText(element).trim();
-    let score = /^\uC790\uB3D9(?:\s*\([^)]+\))?$|^auto(?:\s*\([^)]+\))?$/i.test(text) ? 100 : 20;
-    if (element.getAttribute("role") === "option" || element.getAttribute("role") === "menuitem") {
-      score += 10;
-    }
-    return score;
-  }
-
   function getClickableElement(element) {
     return element.closest("button, [role='button'], [role='menuitem'], [role='option'], li") || element;
-  }
-
-  function findMenuPanel(anchor) {
-    const anchorRect = anchor.getBoundingClientRect();
-    const anchorCenterX = anchorRect.left + anchorRect.width / 2;
-    const menuPattern = /\uD654\uC9C8|\uD574\uC0C1\uB3C4|\uC790\uB3D9|144p|720p|1080p|resolution|quality|auto/i;
-    const preferred = [...document.querySelectorAll(".pzp-settings, .pzp-pc-settings, .pzp-setting-quality-pane__flexbox, .pzp-setting-quality-pane__list-container")]
-      .filter((element) => isVisibleElement(element) && element !== anchor && !anchor.contains(element))
-      .map((element) => ({
-        element,
-        rect: element.getBoundingClientRect(),
-        text: cleanDebugText(getHumanText(element)),
-        classText: String(element.className || ""),
-      }))
-      .filter(({ rect, text }) => (
-        menuPattern.test(text) &&
-        rect.width >= 160 &&
-        rect.width <= 460 &&
-        rect.height >= 60 &&
-        rect.height <= 460 &&
-        rect.left <= anchorRect.right + 260 &&
-        rect.right >= anchorRect.left - 460 &&
-        rect.bottom <= anchorRect.top + Math.max(120, anchorRect.height * 3)
-      ))
-      .sort((a, b) => {
-        const aScore = (/pzp-settings|pzp-pc-settings|quality-pane/i.test(a.classText) ? 20000 : 0);
-        const bScore = (/pzp-settings|pzp-pc-settings|quality-pane/i.test(b.classText) ? 20000 : 0);
-        const aDistance = Math.abs((a.rect.left + a.rect.width / 2) - anchorCenterX) + Math.abs(a.rect.bottom - anchorRect.top);
-        const bDistance = Math.abs((b.rect.left + b.rect.width / 2) - anchorCenterX) + Math.abs(b.rect.bottom - anchorRect.top);
-        return (bScore - aScore) || (aDistance - bDistance);
-      });
-    if (preferred[0]) {
-      return preferred[0].element;
-    }
-    const candidates = [...document.querySelectorAll("div, ul, ol, [role='menu'], [role='listbox'], [class]")]
-      .filter((element) => isVisibleElement(element) && element !== anchor && !anchor.contains(element))
-      .map((element) => ({
-        element,
-        rect: element.getBoundingClientRect(),
-        text: cleanDebugText(getHumanText(element)),
-        rawTextLength: String(getHumanText(element) || "").replace(/\s+/g, " ").trim().length,
-        classText: String(element.className || ""),
-      }))
-      .filter(({ rect, rawTextLength, text, classText }) => (
-        rect.width >= 180 &&
-        rect.width <= 420 &&
-        rect.height >= 64 &&
-        rect.height <= 420 &&
-        rawTextLength <= 700 &&
-        (menuPattern.test(text) || /pzp-settings|pzp-pc-settings|quality-pane|setting.*panel/i.test(classText)) &&
-        rect.left >= 0 &&
-        rect.right <= innerWidth + 8 &&
-        rect.top >= 0 &&
-        rect.bottom <= anchorRect.top + Math.max(96, anchorRect.height * 2) &&
-        rect.left <= anchorRect.right + 240 &&
-        rect.right >= anchorRect.left - 440
-      ))
-      .sort((a, b) => {
-        const aScore = (/pzp-settings|setting.*panel/i.test(a.classText) ? 20000 : 0) + (menuPattern.test(a.text) ? 10000 : 0);
-        const bScore = (/pzp-settings|setting.*panel/i.test(b.classText) ? 20000 : 0) + (menuPattern.test(b.text) ? 10000 : 0);
-        const aDistance = Math.abs((a.rect.left + a.rect.width / 2) - anchorCenterX) + Math.abs(a.rect.bottom - anchorRect.top);
-        const bDistance = Math.abs((b.rect.left + b.rect.width / 2) - anchorCenterX) + Math.abs(b.rect.bottom - anchorRect.top);
-        return (bScore - aScore) || (aDistance - bDistance);
-      });
-    return candidates[0]?.element || null;
-  }
-
-  function clickMenuRowNearAnchor(anchor, rowIndex, mode) {
-    const panel = findMenuPanel(anchor);
-    if (!panel) {
-      return false;
-    }
-    const rect = panel.getBoundingClientRect();
-    const hasHeader = mode === "option" && /\uD574\uC0C1\uB3C4|quality|resolution/i.test(getHumanText(panel));
-    const headerOffset = hasHeader ? Math.min(96, Math.max(48, rect.height * 0.22)) : 0;
-    const usableHeight = Math.max(40, rect.height - headerOffset);
-    const rowCount = mode === "menu" ? 4 : Math.max(1, Math.round(usableHeight / 64));
-    const rowHeight = Math.min(76, Math.max(44, usableHeight / rowCount));
-    const x = Math.round(rect.left + rect.width / 2);
-    const y = Math.round(rect.top + headerOffset + rowHeight * (rowIndex + 0.5));
-    dispatchPointClick(x, y);
-    return true;
   }
 
   function showPlayerControls(video, root) {
@@ -1103,11 +883,6 @@ async function runQualityAutoCommandInPage() {
     const x = rect ? Math.round(rect.left + rect.width / 2) : Math.round(innerWidth / 2);
     const y = rect ? Math.round(rect.top + rect.height / 2) : Math.round(innerHeight / 2);
     dispatchPointerClickAt(element, x, y);
-  }
-
-  function dispatchPointClick(x, y) {
-    const target = document.elementFromPoint(x, y) || document.body;
-    dispatchPointerClickAt(target, x, y);
   }
 
   function dispatchPointerClickAt(element, x, y) {
@@ -1190,16 +965,6 @@ async function runQualityAutoCommandInPage() {
     return rect.width > 1 && rect.height > 1 && style.display !== "none" && style.visibility !== "hidden";
   }
 
-  function getElementText(element) {
-    return [
-      element.getAttribute?.("aria-label"),
-      element.getAttribute?.("title"),
-      element.getAttribute?.("data-testid"),
-      element.className,
-      element.textContent,
-    ].filter(Boolean).join(" ");
-  }
-
   function getHumanText(element) {
     return [
       element.getAttribute?.("aria-label"),
@@ -1209,29 +974,8 @@ async function runQualityAutoCommandInPage() {
     ].filter(Boolean).join(" ");
   }
 
-  function isCompactControl(element) {
-    const rect = element.getBoundingClientRect();
-    const text = cleanDebugText(getHumanText(element));
-    return rect.width > 1 && rect.height > 1 && rect.width <= 180 && rect.height <= 120 && text.length <= 220;
-  }
-
-  function isMenuOptionCandidate(element) {
-    const rect = element.getBoundingClientRect();
-    const text = cleanDebugText(getHumanText(element));
-    const rawText = String(getHumanText(element) || "").replace(/\s+/g, " ").trim();
-    return rect.width > 1 && rect.height > 1 && rect.width <= 480 && rect.height <= 110 && text.length > 0 && rawText.length <= 180;
-  }
-
   function cleanDebugText(text) {
     return String(text || "").replace(/\s+/g, " ").trim().slice(0, 120);
-  }
-
-  function isAutoText(text) {
-    return /(^|[\s/|])\uC790\uB3D9($|[\s/|])|(^|[\s/|])auto($|[\s/|])/i.test(String(text || ""));
-  }
-
-  function isQualityText(text) {
-    return /(?:^|[\s/|])(?:[1-9]\d{2,3}p|auto|\uC790\uB3D9)(?:$|[\s/|])/i.test(String(text || ""));
   }
 
   function sendEscape(root) {
@@ -2291,48 +2035,6 @@ async function broadcastToEditorPages(message) {
   await Promise.allSettled(
     tabs.map((tab) => tab.id ? chrome.tabs.sendMessage(tab.id, message) : Promise.resolve()),
   );
-}
-
-function waitForDownload(downloadId) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (callback, value) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      callback(value);
-    };
-    const onChanged = (delta) => {
-      if (delta.id !== downloadId) {
-        return;
-      }
-      if (delta.error?.current) {
-        finish(reject, Error(`브라우저 저장 실패: ${delta.error.current}`));
-        return;
-      }
-      if (delta.state?.current === "complete") {
-        finish(resolve);
-        return;
-      }
-      if (delta.state?.current === "interrupted") {
-        finish(reject, Error("브라우저 저장이 중단되었습니다."));
-      }
-    };
-    const cleanup = () => chrome.downloads.onChanged.removeListener(onChanged);
-
-    chrome.downloads.onChanged.addListener(onChanged);
-    chrome.downloads.search({ id: downloadId })
-      .then(([download]) => {
-        if (download?.state === "complete") {
-          finish(resolve);
-        } else if (download?.state === "interrupted") {
-          finish(reject, Error("브라우저 저장이 중단되었습니다."));
-        }
-      })
-      .catch((error) => finish(reject, error));
-  });
 }
 
 function waitForDownloadItem(downloadId) {

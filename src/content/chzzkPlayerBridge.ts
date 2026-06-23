@@ -1,4 +1,3 @@
-// @ts-nocheck
 export {};
 
 const AUTO_QUALITY_TEXT = "\uC790\uB3D9";
@@ -96,13 +95,13 @@ async function handleContextFetch(message) {
   };
 }
 
-async function waitForVideo() {
+async function waitForVideo(): Promise<HTMLVideoElement> {
   const existing = findVideo();
   if (existing) {
     return existing;
   }
 
-  return new Promise((resolve, reject) => {
+  return new Promise<HTMLVideoElement>((resolve, reject) => {
     const startedAt = Date.now();
     const observer = new MutationObserver(() => {
       const video = findVideo();
@@ -118,7 +117,7 @@ async function waitForVideo() {
   });
 }
 
-function findVideo() {
+function findVideo(): HTMLVideoElement | null {
   const videos = [...document.querySelectorAll("video")];
   return videos
     .map((video) => ({ video, score: getVideoScore(video) }))
@@ -886,7 +885,7 @@ function getPageSnapshot() {
 }
 
 function getMetaContent(name) {
-  return document.querySelector(`meta[property="${name}"], meta[name="${name}"]`)?.content || "";
+  return document.querySelector<HTMLMetaElement>(`meta[property="${name}"], meta[name="${name}"]`)?.content || "";
 }
 
 function watchPlayableMetadata() {

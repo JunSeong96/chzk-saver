@@ -80,7 +80,7 @@
           </div>
         </details>
         <p id="message" class="message"></p>
-        <div class="hidden-manual-input" hidden>
+        <div hidden>
           <textarea id="vodUrl" rows="1" autocomplete="off"></textarea>
           <button id="inspectButton" type="button">불러오기</button>
         </div>
@@ -115,7 +115,7 @@
                   <p id="remoteTimeText" class="remote-time">0:00</p>
                 </div>
                 <div class="remote-actions" aria-label="원본 플레이어 컨트롤">
-                  <button id="remotePlayButton" class="remote-toggle-button" type="button" title="재생/일시정지" aria-label="재생/일시정지">
+                  <button id="remotePlayButton" type="button" title="재생/일시정지" aria-label="재생/일시정지">
                     <span class="remote-toggle-icon" aria-hidden="true"></span>
                   </button>
                   <button id="remoteMarkStartButton" type="button" title="구간 시작 설정" aria-label="구간 시작 설정">
@@ -183,7 +183,7 @@
         </aside>
       </div>
 
-      <div class="hidden-meta" hidden>
+      <div hidden>
         <span id="channelName"></span>
         <span id="durationText"></span>
         <span id="contentTypeText"></span>

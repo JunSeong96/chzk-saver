@@ -1,4 +1,3 @@
-// @ts-nocheck
 export {};
 
 const urlInput = query("#vodUrl");
@@ -8,8 +7,6 @@ const statusText = query("#status");
 const addView = query("#addView");
 const doneView = query("#doneView");
 const CHZZK_URL_PATTERN = /^https:\/\/chzzk\.naver\.com\/(?:video\/\d+|clips\/[A-Za-z0-9_-]+)/;
-
-let editorTabId = null;
 
 init().catch((error) => {
   statusText.textContent = error instanceof Error ? error.message : String(error);
@@ -70,7 +67,6 @@ async function addCurrentInput() {
     if (response?.ok === false) {
       throw Error(response.message || "편집기를 열지 못했습니다.");
     }
-    editorTabId = response?.tabId ?? null;
     showDoneView();
   } finally {
     addButton.disabled = false;
