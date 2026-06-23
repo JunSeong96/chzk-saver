@@ -52,8 +52,18 @@ window.setInterval(() => {
 }, 1000);
 
 async function handlePlayerCommand(message) {
-  const video = await waitForVideo();
   const command = message.command;
+  const video = await resolveVideoForCommand(command);
+
+  if (!video) {
+    if (command === "qualityAuto") {
+      return { ...getClipPlaceholderState(), qualityAuto: false, qualityMethod: "clip-video-not-ready" };
+    }
+    if (command === "state" || command === "pause") {
+      return getClipPlaceholderState();
+    }
+    throw Error("치지직 플레이어를 찾지 못했습니다.");
+  }
 
   if (command === "play") {
     await setPlaybackState(video, "play");
@@ -96,7 +106,7 @@ async function handleContextFetch(message) {
   };
 }
 
-async function waitForVideo() {
+async function waitForVideo({ timeoutMs = 10000 } = {}) {
   const existing = findVideo();
   if (existing) {
     return existing;
@@ -117,7 +127,7 @@ async function waitForVideo() {
       if (video) {
         cleanup();
         resolve(video);
-      } else if (Date.now() - startedAt > 10000) {
+      } else if (Date.now() - startedAt > timeoutMs) {
         cleanup();
         reject(Error("치지직 플레이어를 찾지 못했습니다."));
       }
@@ -127,6 +137,26 @@ async function waitForVideo() {
     intervalId = window.setInterval(check, 250);
     check();
   });
+}
+
+async function resolveVideoForCommand(command) {
+  if (!isClipPage()) {
+    return waitForVideo();
+  }
+
+  if (command === "state" || command === "qualityAuto" || command === "pause") {
+    return waitForVideo({ timeoutMs: 500 }).catch(() => null);
+  }
+
+  const quickVideo = await waitForVideo({ timeoutMs: 500 }).catch(() => null);
+  if (quickVideo) {
+    return quickVideo;
+  }
+
+  if ((command === "play" || command === "toggle" || command === "seek") && clickClipPlaybackEntry()) {
+    return waitForVideo({ timeoutMs: 5000 }).catch(() => null);
+  }
+  return null;
 }
 
 function findVideo() {
@@ -186,6 +216,55 @@ function getTrackedMediaElements() {
   } catch {
     return [];
   }
+}
+
+function clickClipPlaybackEntry() {
+  const button = findClipPlaybackButton();
+  if (button) {
+    dispatchPointerClick(button);
+    return true;
+  }
+
+  const target = document.elementFromPoint(Math.round(innerWidth / 2), Math.round(innerHeight / 2));
+  if (!target || target === document.documentElement || target === document.body) {
+    return false;
+  }
+  dispatchPointerClick(getClickableElement(target));
+  return true;
+}
+
+function findClipPlaybackButton() {
+  const centerX = innerWidth / 2;
+  const centerY = innerHeight / 2;
+  const candidates = [...document.querySelectorAll("button, [role='button'], [aria-label], [title], [class], svg")]
+    .filter((element) => isVisibleElement(element))
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      const text = getElementText(element);
+      const centerDistance = Math.hypot(rect.left + rect.width / 2 - centerX, rect.top + rect.height / 2 - centerY);
+      let score = Math.max(0, 500 - centerDistance);
+      if (/재생|play|pzp.*play|video.*play|player/i.test(text)) {
+        score += 900;
+      }
+      if (rect.width >= 32 && rect.width <= 160 && rect.height >= 32 && rect.height <= 160) {
+        score += 200;
+      }
+      return { element, score };
+    })
+    .filter((candidate) => candidate.score > 250)
+    .sort((a, b) => b.score - a.score);
+  return candidates[0]?.element ? getClickableElement(candidates[0].element) : null;
+}
+
+function getClipPlaceholderState() {
+  return {
+    url: location.href,
+    currentTime: 0,
+    duration: null,
+    paused: true,
+    ended: false,
+    readyState: 0,
+  };
 }
 
 async function setQualityAuto(video) {
