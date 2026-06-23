@@ -107,8 +107,9 @@ function writeStoredOptions(options) {
 }
 
 function notifyOptionsChanged(options) {
+  globalThis.chzzkSaverItemOptions = normalizeOptions(options);
   window.dispatchEvent(new CustomEvent("chzzk-saver:item-options-changed", {
-    detail: normalizeOptions(options),
+    detail: globalThis.chzzkSaverItemOptions,
   }));
 }
 
