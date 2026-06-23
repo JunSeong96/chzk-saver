@@ -92,6 +92,7 @@ p {
   gap: 14px;
   align-items: start;
   margin-top: 14px;
+  min-height: 0;
 }
 
 .main-pane {
@@ -903,10 +904,11 @@ h2 {
   position: static;
   display: flex;
   flex-direction: column;
-  max-height: none;
-  min-height: 560px;
+  max-height: calc(100dvh - 188px);
+  min-height: min(560px, calc(100dvh - 188px));
   margin-top: 0;
-  padding: 16px;
+  padding: 14px 16px;
+  overflow: hidden;
   background: linear-gradient(180deg, rgba(20, 26, 29, 0.98), rgba(13, 18, 20, 0.98));
 }
 
@@ -1077,14 +1079,17 @@ h2 {
 }
 
 .editor-items-section {
-  flex: 0 0 auto;
-  margin-top: 14px;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  margin-top: 0;
   padding-top: 0;
 }
 
 .editor-items-section.unified-items-section {
   flex: 1 1 auto;
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .editor-items-head h3 {
@@ -1094,12 +1099,16 @@ h2 {
 
 .editor-item-list {
   display: grid;
+  align-content: start;
   gap: 10px;
+  flex: 1 1 auto;
   max-height: none;
-  overflow: visible;
-  margin-top: 12px;
-  padding-top: 12px;
-  padding-right: 2px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding-top: 10px;
+  padding-right: 4px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
@@ -1842,7 +1851,7 @@ h2 {
 
   .queue-section {
     position: static;
-    max-height: none;
+    max-height: calc(100dvh - 180px);
     min-height: 260px;
     margin-top: 0;
   }

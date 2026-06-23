@@ -69,14 +69,6 @@
                 <i aria-hidden="true"></i>
               </label>
             </div>
-            <fieldset>
-              <legend>진단</legend>
-              <label class="option-switch">
-                <span>디버그 모드</span>
-                <input id="debugModeToggle" type="checkbox">
-                <i aria-hidden="true"></i>
-              </label>
-            </fieldset>
           </div>
         </details>
         <p id="message" class="message"></p>
@@ -184,6 +176,7 @@
       </div>
 
       <div class="hidden-meta" hidden>
+        <input id="debugModeToggle" type="checkbox" hidden>
         <span id="channelName"></span>
         <span id="durationText"></span>
         <span id="contentTypeText"></span>
