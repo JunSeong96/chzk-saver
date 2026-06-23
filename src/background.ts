@@ -11,8 +11,6 @@ const CHZZK_QUERY_URLS = [
 
 let offscreenCreation = null;
 let editorWindowId = null;
-const playerFrameCache = new Map();
-const PLAYER_FRAME_CACHE_TTL_MS = 5000;
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ installedAt: Date.now() });
@@ -37,9 +35,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   const url = changeInfo.url || tab?.url;
-  if (changeInfo.url) {
-    playerFrameCache.delete(tabId);
-  }
   if (!isChzzkPlayableUrl(url)) {
     return;
   }
@@ -50,7 +45,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  playerFrameCache.delete(tabId);
   broadcastToEditorPages({
     type: "CHZZK_TAB_REMOVED",
     payload: { tabId },
@@ -264,9 +258,8 @@ async function handleMessage(message, sender) {
 }
 
 async function executePlayerCommandInMainWorld(tabId, payload) {
-  const target = await findPlayerScriptTarget(tabId);
   const [result] = await chrome.scripting.executeScript({
-    target,
+    target: { tabId },
     world: "MAIN",
     func: runPlayerCommandInPage,
     args: [payload],
@@ -278,9 +271,8 @@ async function executePlayerCommandInMainWorld(tabId, payload) {
 }
 
 async function executeQualityAutoCommandInMainWorld(tabId) {
-  const target = await findPlayerScriptTarget(tabId);
   const [result] = await chrome.scripting.executeScript({
-    target,
+    target: { tabId },
     world: "MAIN",
     func: runQualityAutoCommandInPage,
   });
@@ -288,114 +280,6 @@ async function executeQualityAutoCommandInMainWorld(tabId) {
     throw Error("Quality command did not return a state.");
   }
   return result.result;
-}
-
-async function findPlayerScriptTarget(tabId) {
-  const cached = playerFrameCache.get(tabId);
-  if (cached && Date.now() - cached.updatedAt < PLAYER_FRAME_CACHE_TTL_MS) {
-    return cached.target;
-  }
-
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      world: "MAIN",
-      func: detectPlayerFrameInPage,
-    });
-    const best = results
-      .filter((result) => result.result?.score > 0)
-      .sort((a, b) => b.result.score - a.result.score)[0];
-    if (Number.isInteger(best?.frameId)) {
-      const target = { tabId, frameIds: [best.frameId] };
-      playerFrameCache.set(tabId, { target, updatedAt: Date.now() });
-      return target;
-    }
-  } catch (error) {
-    writeDebugLog("playerCommand.frameDetect.error", {
-      tabId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-  playerFrameCache.delete(tabId);
-  return { tabId };
-}
-
-function detectPlayerFrameInPage() {
-  const video = findVideo();
-  if (!video) {
-    return { score: 0, url: location.href };
-  }
-  return {
-    score: getVideoScore(video),
-    url: location.href,
-    currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
-    duration: Number.isFinite(video.duration) ? video.duration : null,
-    paused: video.paused,
-    readyState: video.readyState,
-  };
-
-  function findVideo() {
-    const videos = collectVideos(document);
-    return videos
-      .map((video) => ({ video, score: getVideoScore(video) }))
-      .sort((a, b) => b.score - a.score)[0]?.video || null;
-  }
-
-  function collectVideos(root, seen = new Set()) {
-    if (!root || seen.has(root)) {
-      return [];
-    }
-    seen.add(root);
-
-    const videos = [];
-    if (isVideoElement(root)) {
-      videos.push(root);
-    }
-
-    const querySelectorAll = root.querySelectorAll?.bind(root);
-    if (!querySelectorAll) {
-      return videos;
-    }
-
-    videos.push(...querySelectorAll("video"));
-    for (const element of querySelectorAll("*")) {
-      if (element.shadowRoot) {
-        videos.push(...collectVideos(element.shadowRoot, seen));
-      }
-      if (isIframeElement(element)) {
-        try {
-          const frameDocument = element.contentDocument || element.contentWindow?.document;
-          if (frameDocument) {
-            videos.push(...collectVideos(frameDocument, seen));
-          }
-        } catch {
-          // Cross-origin frames are checked by their own injected frame.
-        }
-      }
-    }
-
-    return [...new Set(videos)];
-  }
-
-  function isVideoElement(value) {
-    return value?.tagName?.toLowerCase?.() === "video";
-  }
-
-  function isIframeElement(value) {
-    return value?.tagName?.toLowerCase?.() === "iframe";
-  }
-
-  function getVideoScore(video) {
-    const rect = video.getBoundingClientRect();
-    const style = getComputedStyle(video);
-    const visible = rect.width > 2 && rect.height > 2 && style.display !== "none" && style.visibility !== "hidden";
-    return (
-      (visible ? rect.width * rect.height : 0) +
-      (video.readyState >= HTMLMediaElement.HAVE_METADATA ? 100000 : 0) +
-      (video.currentSrc || video.src ? 10000 : 0) +
-      (!video.paused ? 5000 : 0)
-    );
-  }
 }
 
 async function runQualityAutoCommandInPage() {
@@ -410,80 +294,25 @@ async function runQualityAutoCommandInPage() {
     }
     return new Promise((resolve, reject) => {
       const startedAt = Date.now();
-      let intervalId = 0;
-      let observer = null;
-      const cleanup = () => {
-        if (intervalId) {
-          window.clearInterval(intervalId);
-        }
-        observer?.disconnect();
-      };
-      const check = () => {
+      const observer = new MutationObserver(() => {
         const video = findVideo();
         if (video) {
-          cleanup();
+          observer.disconnect();
           resolve(video);
         } else if (Date.now() - startedAt > 10000) {
-          cleanup();
+          observer.disconnect();
           reject(Error("CHZZK player video not found."));
         }
-      };
-      observer = new MutationObserver(check);
+      });
       observer.observe(document.documentElement, { childList: true, subtree: true });
-      intervalId = window.setInterval(check, 250);
-      check();
     });
   }
 
   function findVideo() {
-    const videos = collectVideos(document);
+    const videos = [...document.querySelectorAll("video")];
     return videos
       .map((video) => ({ video, score: getVideoScore(video) }))
       .sort((a, b) => b.score - a.score)[0]?.video || null;
-  }
-
-  function collectVideos(root, seen = new Set()) {
-    if (!root || seen.has(root)) {
-      return [];
-    }
-    seen.add(root);
-
-    const videos = [];
-    if (isVideoElement(root)) {
-      videos.push(root);
-    }
-
-    const querySelectorAll = root.querySelectorAll?.bind(root);
-    if (!querySelectorAll) {
-      return videos;
-    }
-
-    videos.push(...querySelectorAll("video"));
-    for (const element of querySelectorAll("*")) {
-      if (element.shadowRoot) {
-        videos.push(...collectVideos(element.shadowRoot, seen));
-      }
-      if (isIframeElement(element)) {
-        try {
-          const frameDocument = element.contentDocument || element.contentWindow?.document;
-          if (frameDocument) {
-            videos.push(...collectVideos(frameDocument, seen));
-          }
-        } catch {
-          // Cross-origin frames are scanned from their own injected frame when available.
-        }
-      }
-    }
-
-    return [...new Set(videos)];
-  }
-
-  function isVideoElement(value) {
-    return value?.tagName?.toLowerCase?.() === "video";
-  }
-
-  function isIframeElement(value) {
-    return value?.tagName?.toLowerCase?.() === "iframe";
   }
 
   async function setQualityAuto(video) {
@@ -1457,80 +1286,25 @@ async function runPlayerCommandInPage(payload) {
 
     return new Promise((resolve, reject) => {
       const startedAt = Date.now();
-      let intervalId = 0;
-      let observer = null;
-      const cleanup = () => {
-        if (intervalId) {
-          window.clearInterval(intervalId);
-        }
-        observer?.disconnect();
-      };
-      const check = () => {
+      const observer = new MutationObserver(() => {
         const video = findVideo();
         if (video) {
-          cleanup();
+          observer.disconnect();
           resolve(video);
         } else if (Date.now() - startedAt > 10000) {
-          cleanup();
+          observer.disconnect();
           reject(Error("CHZZK player video not found."));
         }
-      };
-      observer = new MutationObserver(check);
+      });
       observer.observe(document.documentElement, { childList: true, subtree: true });
-      intervalId = window.setInterval(check, 250);
-      check();
     });
   }
 
   function findVideo() {
-    const videos = collectVideos(document);
+    const videos = [...document.querySelectorAll("video")];
     return videos
       .map((video) => ({ video, score: getVideoScore(video) }))
       .sort((a, b) => b.score - a.score)[0]?.video || null;
-  }
-
-  function collectVideos(root, seen = new Set()) {
-    if (!root || seen.has(root)) {
-      return [];
-    }
-    seen.add(root);
-
-    const videos = [];
-    if (isVideoElement(root)) {
-      videos.push(root);
-    }
-
-    const querySelectorAll = root.querySelectorAll?.bind(root);
-    if (!querySelectorAll) {
-      return videos;
-    }
-
-    videos.push(...querySelectorAll("video"));
-    for (const element of querySelectorAll("*")) {
-      if (element.shadowRoot) {
-        videos.push(...collectVideos(element.shadowRoot, seen));
-      }
-      if (isIframeElement(element)) {
-        try {
-          const frameDocument = element.contentDocument || element.contentWindow?.document;
-          if (frameDocument) {
-            videos.push(...collectVideos(frameDocument, seen));
-          }
-        } catch {
-          // Cross-origin frames are scanned from their own injected frame when available.
-        }
-      }
-    }
-
-    return [...new Set(videos)];
-  }
-
-  function isVideoElement(value) {
-    return value?.tagName?.toLowerCase?.() === "video";
-  }
-
-  function isIframeElement(value) {
-    return value?.tagName?.toLowerCase?.() === "iframe";
   }
 
   async function setPlaybackState(video, action) {
@@ -1932,80 +1706,25 @@ function installInjectedPlayerBridge() {
 
     return new Promise((resolve, reject) => {
       const startedAt = Date.now();
-      let intervalId = 0;
-      let observer = null;
-      const cleanup = () => {
-        if (intervalId) {
-          window.clearInterval(intervalId);
-        }
-        observer?.disconnect();
-      };
-      const check = () => {
+      const observer = new MutationObserver(() => {
         const video = findVideo();
         if (video) {
-          cleanup();
+          observer.disconnect();
           resolve(video);
         } else if (Date.now() - startedAt > 10000) {
-          cleanup();
+          observer.disconnect();
           reject(Error("치지직 플레이어를 찾지 못했습니다."));
         }
-      };
-      observer = new MutationObserver(check);
+      });
       observer.observe(document.documentElement, { childList: true, subtree: true });
-      intervalId = window.setInterval(check, 250);
-      check();
     });
   }
 
   function findVideo() {
-    const videos = collectVideos(document);
+    const videos = [...document.querySelectorAll("video")];
     return videos
       .map((video) => ({ video, score: getVideoScore(video) }))
       .sort((a, b) => b.score - a.score)[0]?.video || null;
-  }
-
-  function collectVideos(root, seen = new Set()) {
-    if (!root || seen.has(root)) {
-      return [];
-    }
-    seen.add(root);
-
-    const videos = [];
-    if (isVideoElement(root)) {
-      videos.push(root);
-    }
-
-    const querySelectorAll = root.querySelectorAll?.bind(root);
-    if (!querySelectorAll) {
-      return videos;
-    }
-
-    videos.push(...querySelectorAll("video"));
-    for (const element of querySelectorAll("*")) {
-      if (element.shadowRoot) {
-        videos.push(...collectVideos(element.shadowRoot, seen));
-      }
-      if (isIframeElement(element)) {
-        try {
-          const frameDocument = element.contentDocument || element.contentWindow?.document;
-          if (frameDocument) {
-            videos.push(...collectVideos(frameDocument, seen));
-          }
-        } catch {
-          // Cross-origin frames are scanned from their own injected frame when available.
-        }
-      }
-    }
-
-    return [...new Set(videos)];
-  }
-
-  function isVideoElement(value) {
-    return value?.tagName?.toLowerCase?.() === "video";
-  }
-
-  function isIframeElement(value) {
-    return value?.tagName?.toLowerCase?.() === "iframe";
   }
 
   async function setPlaybackState(video, action) {
