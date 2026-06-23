@@ -2041,7 +2041,7 @@ async function openOrFocusEditorWindow({ addUrl = "" } = {}) {
   const win = await chrome.windows.create({
     url,
     type: "popup",
-    width: 520,
+    width: 800,
     height: 574,
     focused: true,
   });
