@@ -104,25 +104,80 @@ async function waitForVideo() {
 
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
-    const observer = new MutationObserver(() => {
+    let intervalId = 0;
+    let observer = null;
+    const cleanup = () => {
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+      observer?.disconnect();
+    };
+    const check = () => {
       const video = findVideo();
       if (video) {
-        observer.disconnect();
+        cleanup();
         resolve(video);
       } else if (Date.now() - startedAt > 10000) {
-        observer.disconnect();
+        cleanup();
         reject(Error("치지직 플레이어를 찾지 못했습니다."));
       }
-    });
+    };
+    observer = new MutationObserver(check);
     observer.observe(document.documentElement, { childList: true, subtree: true });
+    intervalId = window.setInterval(check, 250);
+    check();
   });
 }
 
 function findVideo() {
-  const videos = [...document.querySelectorAll("video")];
+  const videos = collectVideos(document);
   return videos
     .map((video) => ({ video, score: getVideoScore(video) }))
     .sort((a, b) => b.score - a.score)[0]?.video || null;
+}
+
+function collectVideos(root, seen = new Set()) {
+  if (!root || seen.has(root)) {
+    return [];
+  }
+  seen.add(root);
+
+  const videos = [];
+  if (isVideoElement(root)) {
+    videos.push(root);
+  }
+
+  const querySelectorAll = root.querySelectorAll?.bind(root);
+  if (!querySelectorAll) {
+    return videos;
+  }
+
+  videos.push(...querySelectorAll("video"));
+  for (const element of querySelectorAll("*")) {
+    if (element.shadowRoot) {
+      videos.push(...collectVideos(element.shadowRoot, seen));
+    }
+    if (isIframeElement(element)) {
+      try {
+        const frameDocument = element.contentDocument || element.contentWindow?.document;
+        if (frameDocument) {
+          videos.push(...collectVideos(frameDocument, seen));
+        }
+      } catch {
+        // Cross-origin frames are scanned from their own injected frame when available.
+      }
+    }
+  }
+
+  return [...new Set(videos)];
+}
+
+function isVideoElement(value) {
+  return value?.tagName?.toLowerCase?.() === "video";
+}
+
+function isIframeElement(value) {
+  return value?.tagName?.toLowerCase?.() === "iframe";
 }
 
 async function setQualityAuto(video) {
