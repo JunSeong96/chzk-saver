@@ -142,7 +142,7 @@ function collectVideos(root, seen = new Set()) {
   }
   seen.add(root);
 
-  const videos = [];
+  const videos = getTrackedMediaElements();
   if (isVideoElement(root)) {
     videos.push(root);
   }
@@ -178,6 +178,14 @@ function isVideoElement(value) {
 
 function isIframeElement(value) {
   return value?.tagName?.toLowerCase?.() === "iframe";
+}
+
+function getTrackedMediaElements() {
+  try {
+    return [...(window.__chzzkSaverMediaElements || [])].filter(isVideoElement);
+  } catch {
+    return [];
+  }
 }
 
 async function setQualityAuto(video) {

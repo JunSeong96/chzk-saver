@@ -4,6 +4,7 @@ export {};
 (() => {
   const INSTALL_FLAG = "__chzzkSaverQualityTrackerInstalled";
   const TARGETS_KEY = "__chzzkSaverQualityTargets";
+  const MEDIA_ELEMENTS_KEY = "__chzzkSaverMediaElements";
   const MAX_TARGETS = 40;
 
   if (window[INSTALL_FLAG]) {
@@ -17,6 +18,7 @@ export {};
   }
 
   const trackedTargets = [];
+  const trackedMediaElements = [];
   try {
     Object.defineProperty(window, TARGETS_KEY, {
       configurable: false,
@@ -25,10 +27,20 @@ export {};
   } catch {
     window[TARGETS_KEY] = trackedTargets;
   }
+  try {
+    Object.defineProperty(window, MEDIA_ELEMENTS_KEY, {
+      configurable: false,
+      value: trackedMediaElements,
+    });
+  } catch {
+    window[MEDIA_ELEMENTS_KEY] = trackedMediaElements;
+  }
 
   const nativeDefineProperty = Object.defineProperty;
   const nativeDefineProperties = Object.defineProperties;
   const nativeReflectDefineProperty = Reflect?.defineProperty;
+  const nativeCreateElement = Document.prototype.createElement;
+  const nativeCreateElementNS = Document.prototype.createElementNS;
 
   function rememberQualityTarget(target) {
     if (!target || (typeof target !== "object" && typeof target !== "function")) {
@@ -41,6 +53,21 @@ export {};
     if (trackedTargets.length > MAX_TARGETS) {
       trackedTargets.shift();
     }
+  }
+
+  function rememberMediaElement(element) {
+    if (!isMediaElement(element) || trackedMediaElements.includes(element)) {
+      return;
+    }
+    trackedMediaElements.push(element);
+    if (trackedMediaElements.length > MAX_TARGETS) {
+      trackedMediaElements.shift();
+    }
+  }
+
+  function isMediaElement(value) {
+    const tagName = value?.tagName?.toLowerCase?.();
+    return tagName === "video" || tagName === "audio";
   }
 
   function hasTrackList(value) {
@@ -137,5 +164,33 @@ export {};
     } catch {
       // Opportunistic.
     }
+  }
+
+  try {
+    Document.prototype.createElement = function(tagName, options) {
+      const element = nativeCreateElement.call(this, tagName, options);
+      rememberMediaElement(element);
+      return element;
+    };
+  } catch {
+    // Direct DOM scans can still find open player trees.
+  }
+
+  try {
+    Document.prototype.createElementNS = function(namespaceURI, qualifiedName, options) {
+      const element = nativeCreateElementNS.call(this, namespaceURI, qualifiedName, options);
+      rememberMediaElement(element);
+      return element;
+    };
+  } catch {
+    // Opportunistic.
+  }
+
+  try {
+    for (const element of document.querySelectorAll("video,audio")) {
+      rememberMediaElement(element);
+    }
+  } catch {
+    // Ignore early document access issues.
   }
 })();

@@ -152,8 +152,9 @@ async function handleMessage(message, sender) {
         command,
         message: error instanceof Error ? error.message : String(error),
       });
-      await ensurePlayerBridge(tabId);
-      const response = await chrome.tabs.sendMessage(tabId, {
+      const fallbackTarget = await findPlayerScriptTarget(tabId, { forceRefresh: true });
+      await ensurePlayerBridge(tabId, fallbackTarget);
+      const response = await sendPlayerBridgeMessage(tabId, fallbackTarget, {
         type: "CHZZK_PLAYER_COMMAND",
         command,
         time: message.payload?.time,
@@ -290,9 +291,9 @@ async function executeQualityAutoCommandInMainWorld(tabId) {
   return result.result;
 }
 
-async function findPlayerScriptTarget(tabId) {
+async function findPlayerScriptTarget(tabId, options = {}) {
   const cached = playerFrameCache.get(tabId);
-  if (cached && Date.now() - cached.updatedAt < PLAYER_FRAME_CACHE_TTL_MS) {
+  if (!options.forceRefresh && cached && Date.now() - cached.updatedAt < PLAYER_FRAME_CACHE_TTL_MS) {
     return cached.target;
   }
 
@@ -301,6 +302,22 @@ async function findPlayerScriptTarget(tabId) {
       target: { tabId, allFrames: true },
       world: "MAIN",
       func: detectPlayerFrameInPage,
+    });
+    await emitDebugLog("background", "playerCommand.frameDetect", {
+      tabId,
+      frames: results.length,
+      candidates: results
+        .map((result) => ({
+          frameId: result.frameId,
+          score: result.result?.score || 0,
+          url: sanitizeDebugUrl(result.result?.url || ""),
+          tag: result.result?.tag || "",
+          duration: result.result?.duration ?? null,
+          readyState: result.result?.readyState ?? null,
+        }))
+        .filter((result) => result.score > 0 || result.url)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8),
     });
     const best = results
       .filter((result) => result.result?.score > 0)
@@ -311,13 +328,23 @@ async function findPlayerScriptTarget(tabId) {
       return target;
     }
   } catch (error) {
-    writeDebugLog("playerCommand.frameDetect.error", {
+    await emitDebugLog("background", "playerCommand.frameDetect.error", {
       tabId,
       message: error instanceof Error ? error.message : String(error),
     });
   }
   playerFrameCache.delete(tabId);
   return { tabId };
+}
+
+async function sendPlayerBridgeMessage(tabId, target, message) {
+  const frameId = Array.isArray(target?.frameIds) && target.frameIds.length === 1
+    ? target.frameIds[0]
+    : null;
+  if (Number.isInteger(frameId)) {
+    return chrome.tabs.sendMessage(tabId, message, { frameId });
+  }
+  return chrome.tabs.sendMessage(tabId, message);
 }
 
 function detectPlayerFrameInPage() {
@@ -328,6 +355,7 @@ function detectPlayerFrameInPage() {
   return {
     score: getVideoScore(video),
     url: location.href,
+    tag: video.tagName || "video",
     currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
     duration: Number.isFinite(video.duration) ? video.duration : null,
     paused: video.paused,
@@ -347,7 +375,7 @@ function detectPlayerFrameInPage() {
     }
     seen.add(root);
 
-    const videos = [];
+    const videos = getTrackedMediaElements();
     if (isVideoElement(root)) {
       videos.push(root);
     }
@@ -383,6 +411,14 @@ function detectPlayerFrameInPage() {
 
   function isIframeElement(value) {
     return value?.tagName?.toLowerCase?.() === "iframe";
+  }
+
+  function getTrackedMediaElements() {
+    try {
+      return [...(window.__chzzkSaverMediaElements || [])].filter(isVideoElement);
+    } catch {
+      return [];
+    }
   }
 
   function getVideoScore(video) {
@@ -448,7 +484,7 @@ async function runQualityAutoCommandInPage() {
     }
     seen.add(root);
 
-    const videos = [];
+    const videos = getTrackedMediaElements();
     if (isVideoElement(root)) {
       videos.push(root);
     }
@@ -484,6 +520,14 @@ async function runQualityAutoCommandInPage() {
 
   function isIframeElement(value) {
     return value?.tagName?.toLowerCase?.() === "iframe";
+  }
+
+  function getTrackedMediaElements() {
+    try {
+      return [...(window.__chzzkSaverMediaElements || [])].filter(isVideoElement);
+    } catch {
+      return [];
+    }
   }
 
   async function setQualityAuto(video) {
@@ -1495,7 +1539,7 @@ async function runPlayerCommandInPage(payload) {
     }
     seen.add(root);
 
-    const videos = [];
+    const videos = getTrackedMediaElements();
     if (isVideoElement(root)) {
       videos.push(root);
     }
@@ -1531,6 +1575,14 @@ async function runPlayerCommandInPage(payload) {
 
   function isIframeElement(value) {
     return value?.tagName?.toLowerCase?.() === "iframe";
+  }
+
+  function getTrackedMediaElements() {
+    try {
+      return [...(window.__chzzkSaverMediaElements || [])].filter(isVideoElement);
+    } catch {
+      return [];
+    }
   }
 
   async function setPlaybackState(video, action) {
@@ -1805,13 +1857,13 @@ async function playMediaElement(video, { allowMutedKickstart = false } = {}) {
   }
 }
 
-async function ensurePlayerBridge(tabId) {
+async function ensurePlayerBridge(tabId, target = { tabId }) {
   try {
-    await chrome.tabs.sendMessage(tabId, { type: "CHZZK_PLAYER_COMMAND", command: "state" });
+    await sendPlayerBridgeMessage(tabId, target, { type: "CHZZK_PLAYER_COMMAND", command: "state" });
     return;
   } catch {
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: Array.isArray(target?.frameIds) ? target : { tabId, allFrames: true },
       func: installInjectedPlayerBridge,
     });
   }
@@ -1970,7 +2022,7 @@ function installInjectedPlayerBridge() {
     }
     seen.add(root);
 
-    const videos = [];
+    const videos = getTrackedMediaElements();
     if (isVideoElement(root)) {
       videos.push(root);
     }
@@ -2006,6 +2058,14 @@ function installInjectedPlayerBridge() {
 
   function isIframeElement(value) {
     return value?.tagName?.toLowerCase?.() === "iframe";
+  }
+
+  function getTrackedMediaElements() {
+    try {
+      return [...(window.__chzzkSaverMediaElements || [])].filter(isVideoElement);
+    } catch {
+      return [];
+    }
   }
 
   async function setPlaybackState(video, action) {
