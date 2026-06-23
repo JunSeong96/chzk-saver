@@ -17,27 +17,25 @@ const controls = Object.fromEntries(
   ])),
 );
 
-init().catch(() => {});
+const ready = init();
+globalThis.chzzkSaverItemOptionsReady = ready;
+ready.catch(() => {});
 
 async function init() {
-  const localOptions = normalizeOptions(readLocalOptions());
-  writeLocalOptions(localOptions);
-  applyOptions(localOptions);
+  const localOptions = readLocalOptions();
+  const storedOptions = await readStoredOptions();
+  const options = normalizeOptions(storedOptions || localOptions);
+  writeLocalOptions(options);
+  applyOptions(options);
+  notifyOptionsChanged(options);
 
   for (const input of Object.values(controls)) {
     input?.addEventListener("change", () => {
       const next = readControls();
       writeLocalOptions(next);
       writeStoredOptions(next);
-      window.dispatchEvent(new CustomEvent("chzzk-saver:item-options-changed", { detail: next }));
+      notifyOptionsChanged(next);
     });
-  }
-
-  const storedOptions = await readStoredOptions();
-  if (storedOptions) {
-    const options = normalizeOptions(storedOptions);
-    writeLocalOptions(options);
-    applyOptions(options);
   }
 }
 
@@ -106,6 +104,12 @@ function writeStoredOptions(options) {
       storage.set({ [STORAGE_KEY]: normalizeOptions(options) }, () => {});
     } catch {}
   }
+}
+
+function notifyOptionsChanged(options) {
+  window.dispatchEvent(new CustomEvent("chzzk-saver:item-options-changed", {
+    detail: normalizeOptions(options),
+  }));
 }
 
 function normalizeOptions(options = {}) {
